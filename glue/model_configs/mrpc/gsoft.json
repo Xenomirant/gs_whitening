@@ -1,0 +1,13 @@
+{
+    "arch": {
+        "type": "GSOFTRobertaClassifier",
+        "args": {
+          "n_classes": 2,
+          "cls_dropout": 0.0,
+          "do_gsoft": true,
+          "orthogonal": true,
+          "method": "cayley",
+          "block_size": 8
+        }
+      }
+}

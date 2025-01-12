@@ -1,0 +1,9 @@
+{
+    "arch": {
+        "type": "RobertaClassifier",
+        "args": {
+          "n_classes": 1,
+          "cls_dropout": 0.2
+        }
+      }
+}

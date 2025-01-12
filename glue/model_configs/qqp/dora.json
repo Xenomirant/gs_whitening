@@ -1,0 +1,12 @@
+{
+    "arch": {
+        "type": "LoraRobertaClassifier",
+        "args": {
+          "n_classes": 2,
+          "cls_dropout": 0.15,
+          "r": 8,
+          "lora_dropout": 0.0,
+          "use_dora": true
+        }
+      }
+}

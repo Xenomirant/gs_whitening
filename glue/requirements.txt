@@ -1,0 +1,7 @@
+wandb
+einops
+transformers
+datasets
+evaluate
+ninja
+git+https://github.com/huggingface/peft

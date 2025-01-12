@@ -1,0 +1,11 @@
+{
+    "arch": {
+        "type": "BOFTRobertaClassifier",
+        "args": {
+          "n_classes": 2,
+          "cls_dropout": 0.0,
+          "boft_block_size": 8,
+          "boft_n_butterfly_factor": 2
+        }
+      }
+}

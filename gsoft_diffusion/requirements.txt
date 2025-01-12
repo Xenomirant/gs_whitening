@@ -1,0 +1,13 @@
+accelerate==0.26.1
+diffusers==0.25.1
+huggingface_hub==0.25.2
+torchvision
+transformers==4.37.1
+ftfy
+tensorboard
+wandb
+Jinja2
+peft==0.7.0
+einops
+natsort
+safetensors
