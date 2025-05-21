@@ -181,8 +181,9 @@ cython_debug/
 .cursorindexingignore
 
 sbatch_runs/*
-*.log
-*.err
+logs/*
+err_logs/*
 
 wandb/
 sbatch_runs/
+checkpoints/
