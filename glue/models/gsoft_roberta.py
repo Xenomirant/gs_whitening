@@ -2,7 +2,7 @@ import regex as re
 import torch
 from torch import nn as nn
 from transformers import RobertaModel
-from models.utils import get_layer, set_layer
+from models.utils import get_layer, set_layer, singular_norm
 
 from models.layers.gsoft import GSOFTLayer
 
@@ -56,14 +56,15 @@ class GSOFTRobertaClassifier(nn.Module):
                     else:
                         output_ = output.clone().detach()
                     self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
-                        torch.linalg.matrix_norm(output_, ord="fro", dim=(-2, -1))**2 / torch.linalg.matrix_norm(output_, ord=2, dim=(-2, -1))**2
+                        torch.linalg.matrix_norm(output_, 
+                                ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
                 return None
             return hook
 
         # Register hooks for specific layers
         for name, module in self.roberta.named_modules():
-            if name == "embeddings" or re.search("encoder\.layer\.[0-9]+\.output$", name):
+            if name == "embeddings" or re.search(r"encoder\.layer\.[0-9]+\.output$", name):
                 print(f"Setting hook on layer:{name}")
                 module.register_forward_hook(get_loss_hook(name))
 
@@ -72,6 +73,8 @@ class GSOFTRobertaClassifier(nn.Module):
         if self.log_step % self.log_every == 0:
             self.eff_ranks = {}
             self.log_step=0
+
+        self.attention_mask = attention_mask
         
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]

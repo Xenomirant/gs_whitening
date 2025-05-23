@@ -47,7 +47,7 @@ class RobertaClassifier(nn.Module):
 
         # Register hooks for specific layers
         for name, module in self.roberta.named_modules():
-            if name == "embeddings" or re.search("encoder\.layer\.[0-9]+\.output$", name):
+            if name == "embeddings" or re.search(r"encoder\.layer\.[0-9]+\.output$", name):
                 print(f"Setting hook on layer:{name}")
                 module.register_forward_hook(get_loss_hook(name))
 

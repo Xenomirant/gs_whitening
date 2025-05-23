@@ -3,6 +3,7 @@ import torch
 from torch import nn as nn
 from transformers import RobertaModel
 from peft import BOFTConfig, get_peft_model
+from models.utils import singular_norm
 
 class BOFTRobertaClassifier(nn.Module):
 
@@ -52,14 +53,15 @@ class BOFTRobertaClassifier(nn.Module):
 
                 layer_name = layer_name.split("base_model.model.")[-1]
                 self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
-                    torch.linalg.matrix_norm(output_, ord="fro", dim=(-2, -1))**2 / torch.linalg.matrix_norm(output_, ord=2, dim=(-2, -1))**2
-                    ).mean().item()
+                        torch.linalg.matrix_norm(output_, 
+                                ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
+                        ).mean().item()
                 return None
             return hook
 
         # Register hooks for specific layers
         for name, module in self.roberta.named_modules():
-            if name == "embeddings" or re.search("encoder\.layer\.[0-9]+\.output$", name):
+            if name == "embeddings" or re.search(r"encoder\.layer\.[0-9]+\.output$", name):
                 print(f"Setting hook on layer:{name}")
                 module.register_forward_hook(get_loss_hook(name))
 
@@ -68,6 +70,8 @@ class BOFTRobertaClassifier(nn.Module):
         if self.log_step % self.log_every == 0:
             self.eff_ranks = {}
             self.log_step=0
+
+        self.attention_mask = attention_mask
 
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]

@@ -4,12 +4,13 @@ from torch import nn as nn
 from transformers import RobertaModel
 
 from models.utils import set_layer
-from models.layers.whitening import Whitening2dIterNorm
+from models.layers.whitening import WhiteningSing2dIterNorm
+from models.utils import singular_norm
 
 class IterNormTraceLossRobertaClassifier(nn.Module):
 
     def __init__(self, n_classes, cls_dropout=0.1, 
-        norm_iterations=4, use_running_stats_train=True,
+        num_iterations=4, use_running_stats_train=True,
         use_batch_whitening=False, use_only_running_stats_eval=False,
         log_steps_eff_rank=10):
         super().__init__()
@@ -17,17 +18,20 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
         self.roberta = RobertaModel.from_pretrained("roberta-base")
 
         for name, module in self.roberta.named_modules():
-            if re.search("encoder\.layer\.[0-9]+\.output", name):
+            if re.search(r"encoder\.layer\.[0-9]+\.output", name):
                 if isinstance(module, nn.LayerNorm):
                     emb_dim = module.weight.shape[0]
                     weight, bias = module.weight.data, module.bias.data
 
-                    wh_layer = Whitening2dIterNorm(num_features=emb_dim, 
-                                iterations=norm_iterations, use_batch_whitening=use_batch_whitening,
+                    wh_layer = WhiteningSing2dIterNorm(num_features=emb_dim, 
+                                iterations=num_iterations, use_batch_whitening=use_batch_whitening,
                                 use_running_stats_train=use_running_stats_train,
                                 use_only_running_stats_eval=use_only_running_stats_eval
                                 )
                     wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
+                    
+                    wh_layer.register_forward_pre_hook(self._get_attention_mask_hook())
+                    
                     print(f"Changling layer: {name}")
                     set_layer(self.roberta, name, wh_layer)
 
@@ -49,6 +53,13 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
 
         for name, parameter in self.named_parameters():
             parameter.requires_grad=True
+
+    def _get_attention_mask_hook(self,):
+        def forward_hook(module, input,):
+            if hasattr(self, 'attention_mask'):
+                module.attention_mask = self.attention_mask
+            return None
+        return forward_hook
         
     def _register_eff_rank_hooks(self):
         """Register hooks to calculate and store layer-wise losses"""
@@ -60,7 +71,8 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
                     else:
                         output_ = output.clone().detach()
                     self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
-                        torch.linalg.matrix_norm(output_, ord="fro", dim=(-2, -1))**2 / torch.linalg.matrix_norm(output_, ord=2, dim=(-2, -1))**2
+                        torch.linalg.matrix_norm(output_, 
+                                ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
                 return None
             return hook
@@ -76,6 +88,8 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
         if self.log_step % self.log_every == 0:
             self.eff_ranks = {}
             self.log_step=0
+
+        self.attention_mask = attention_mask
         
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]

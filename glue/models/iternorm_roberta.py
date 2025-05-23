@@ -4,7 +4,7 @@ from torch import nn as nn
 from transformers import RobertaModel
 
 from models.utils import set_layer, singular_norm
-from models.layers.whitening import Whitening2dIterNorm
+from models.layers.whitening import WhiteningSing2dIterNorm
 
 
 class IterNormRobertaClassifier(nn.Module):
@@ -16,20 +16,21 @@ class IterNormRobertaClassifier(nn.Module):
         super().__init__()
         
         self.roberta = RobertaModel.from_pretrained("roberta-base")
+
         for name, module in self.roberta.named_modules():
-            if re.search("encoder\.layer\.[0-9]+\.output", name):
+            if re.search(r"encoder\.layer\.[0-9]+\.output", name):
                 if isinstance(module, nn.LayerNorm):
                     emb_dim = module.weight.shape[0]
                     weight, bias = module.weight.data, module.bias.data
 
-                    wh_layer = Whitening2dIterNorm(num_features=emb_dim, 
+                    wh_layer = WhiteningSing2dIterNorm(num_features=emb_dim, 
                                 iterations=num_iterations, use_batch_whitening=use_batch_whitening,
                                 use_running_stats_train=use_running_stats_train,
                                 use_only_running_stats_eval=use_only_running_stats_eval
                                 )
                     wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
                     
-                    wh_layer.register_forward_hook(self.get_attention_mask_hook())
+                    wh_layer.register_forward_pre_hook(self._get_attention_mask_hook())
                     
                     print(f"Changling layer: {name}")
                     set_layer(self.roberta, name, wh_layer)
@@ -55,8 +56,8 @@ class IterNormRobertaClassifier(nn.Module):
             parameter.requires_grad=True
     
 
-    def get_attention_mask_hook(self,):
-        def forward_hook(module, input, output):
+    def _get_attention_mask_hook(self,):
+        def forward_hook(module, input,):
             if hasattr(self, 'attention_mask'):
                 module.attention_mask = self.attention_mask
             return None

@@ -78,11 +78,11 @@ class Whitening2d(nn.Module):
                 (1-self.momentum)*cur + self.momentum*value
                 )
 
-    def forward_train(self, x, attention_mask):
+    def forward_train(self, x, attention_mask, n):
         
         batch_size, w_dim = x.size(0), x.size(-1)
         
-        m_r = x.mean(1, keepdim=True)
+        m_r = x.sum(1, keepdim=True) / n[:, None, None]
         if self.use_running_stats_train:
             m = (1-self.momentum)*self.running_mean + self.momentum*m_r
         else:
@@ -90,7 +90,7 @@ class Whitening2d(nn.Module):
         
         xn = x - m
 
-        eye, sigma_r = self.calc_eye_sigma(xn, w_dim=w_dim, batch_size=batch_size)
+        eye, sigma_r = self.calc_eye_sigma(xn, w_dim=w_dim, batch_size=batch_size, n=n)
         if self.use_running_stats_train:
             sigma = (1-self.momentum)*self.running_covariance[None, :, :] + self.momentum*sigma_r
         else:
@@ -107,23 +107,23 @@ class Whitening2d(nn.Module):
         return decorrelated
     
     @torch.no_grad
-    def forward_test(self, x, attention_mask):
+    def forward_test(self, x, attention_mask, n):
 
         batch_size, w_dim = x.size(0), x.size(-1)
 
         if self.use_only_running_stats_eval:
             xn = x - self.running_mean
             decorrelated = torch.bmm(xn, 
-                                     einops.repeat(self.running_whitening, "feats1 feats2 -> batch feats1 feats2", batch=batch_size), 
+                einops.repeat(self.running_whitening, "feats1 feats2 -> batch feats1 feats2", batch=batch_size), 
                                      )
             return decorrelated
         
-        m = x.mean(1, keepdim=True)
+        m = x.sum(1, keepdim=True) / n[:, None, None]
         m = (1-self.momentum)*self.running_mean + self.momentum*m
 
         xn = x - m
 
-        eye, sigma = self.calc_eye_sigma(xn, w_dim=w_dim, batch_size=batch_size)
+        eye, sigma = self.calc_eye_sigma(xn, w_dim=w_dim, batch_size=batch_size, n=n)
         sigma = (1-self.momentum)*self.running_covariance[None, :, :] + self.momentum*sigma
 
         wh_matrix = self.whiten_matrix(sigma=sigma, eye=eye)
@@ -133,31 +133,33 @@ class Whitening2d(nn.Module):
     def forward(self, x, **kwargs):
         
         attention_mask = getattr(self, "attention_mask")
-        print(attention_mask)
+        x = x * attention_mask[:, :, None]
+        n = attention_mask.sum(axis=-1)
 
         if self.training:
-            x = self.forward_train(x=x)
+            x = self.forward_train(x=x, attention_mask=attention_mask, n=n)
             x = self.weight*x + self.bias
             return x
-        x = self.forward_test(x=x)
+        x = self.forward_test(x=x, attention_mask=attention_mask, n=n)
         x = self.weight*x + self.bias
         return x
 
     @abc.abstractmethod
-    def whiten_matrix(self, sigma, eye):
+    def whiten_matrix(self, sigma, eye) -> torch.Tensor:
         pass
 
-    def calc_eye_sigma(self, xn, w_dim, batch_size):
+    def calc_eye_sigma(self, xn, w_dim, batch_size, n):
         eye = einops.repeat(torch.eye(w_dim).type(xn.type()), 
                 "feats1 feats2 -> batch feats1 feats2", batch=batch_size).to(xn.device)
         if self.use_batch_whitening:
+            n = n.sum()
             batch_cov = einops.rearrange(xn, "batch sequence feats -> (batch sequence) feats")
             sigma = einops.einsum(batch_cov, batch_cov, 
-                                  "batch_seq feats1, batch_seq feats2 -> feats1 feats2") / (batch_cov.shape[0] - 1)
+                                  "batch_seq feats1, batch_seq feats2 -> feats1 feats2") / (n - 1)
             sigma = einops.repeat(sigma, "feats1 feats2 -> batch feats1 feats2", batch=batch_size)
         else:
             sigma = einops.einsum(xn, xn, 
-                                  "batch seq feats1, batch seq feats2 -> batch feats1 feats2") / (xn.shape[1] - 1)
+                                  "batch seq feats1, batch seq feats2 -> batch feats1 feats2") / (n[:, None, None] - 1)
         return eye, sigma
 
     def extra_repr(self):
@@ -167,7 +169,7 @@ class Whitening2d(nn.Module):
             "use_running_stats_train={use_running_stats_train}, use_only_running_stats_eval={use_only_running_stats_eval}".format(**self.__dict__)
         )
 
-class Whitening2dIterNorm(Whitening2d):
+class WhiteningTrace2dIterNorm(Whitening2d):
 
     def whiten_matrix(self, sigma, eye):
         trace = sigma.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1)
@@ -178,5 +180,18 @@ class Whitening2dIterNorm(Whitening2d):
         for _ in range(self.iterations):
             projection = torch.baddbmm(projection, torch.matrix_power(projection, 3), sigma_norm, beta=1.5, alpha=-0.5)
         wm = projection.mul_(trace.reciprocal().sqrt())
+        return wm
+
+class WhiteningSing2dIterNorm(Whitening2d):
+
+    def whiten_matrix(self, sigma, eye):
+        singval = singular_norm(input_tensor=sigma)
+        singval = singval.reshape(sigma.size(0), 1, 1)
+        sigma_norm = sigma * singval.reciprocal()
+
+        projection = eye
+        for _ in range(self.iterations):
+            projection = torch.baddbmm(projection, torch.matrix_power(projection, 3), sigma_norm, beta=1.5, alpha=-0.5)
+        wm = projection.mul_(singval.reciprocal().sqrt())
         return wm
     
