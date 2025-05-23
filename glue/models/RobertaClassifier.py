@@ -1,7 +1,7 @@
 import regex as re
 import torch
 from torch import nn as nn
-from transformers import RobertaModel, AutoModel
+from transformers import RobertaModel
 
 
 class RobertaClassifier(nn.Module):
@@ -9,7 +9,7 @@ class RobertaClassifier(nn.Module):
     def __init__(self, n_classes, cls_dropout=0.1, log_steps_eff_rank=10):
         super().__init__()
         
-        self.roberta = AutoModel.from_pretrained("facebookai/roberta-base")
+        self.roberta = RobertaModel.from_pretrained("roberta-base")
         self.eff_ranks = {}
         self.log_every = log_steps_eff_rank
         self.log_step=0
@@ -57,8 +57,8 @@ class RobertaClassifier(nn.Module):
             self.log_step=0
 
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
-        # pooler = roberta_output[0][:, 0]
-        logits = self.classifier(roberta_output.pooler_output)
+        pooler = roberta_output[0][:, 0]
+        logits = self.classifier(pooler)
         self.log_step += 1
         # self.report_metrics(**self.eff_ranks)
         if labels is not None:
