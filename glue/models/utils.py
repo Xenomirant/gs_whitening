@@ -25,8 +25,10 @@ def singular_norm(input_tensor: torch.Tensor, power_iterations=20) -> torch.Tens
 
     factory_kwargs = {"dtype": input_tensor.dtype, "device": input_tensor.device}
 
-    sigmas = torch.empty(size=(B, ), **factory_kwargs)
-    v, u = torch.randn(size=(B, S), **factory_kwargs), torch.randn(size=(B, F), **factory_kwargs)
+    sigmas = torch.empty(size=(B, ), **factory_kwargs, requires_grad=False)
+    v, u = torch.randn(size=(B, S), **factory_kwargs, 
+                       requires_grad=False), torch.randn(size=(B, F), **factory_kwargs, 
+                                                         requires_grad=False)
     v, u = l2normalize(v), l2normalize(u)
 
     for _ in range(power_iterations):

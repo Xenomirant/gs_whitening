@@ -40,13 +40,13 @@ class Whitening2d(nn.Module):
         
         if self.track_running_stats:
             self.register_buffer(
-                "running_mean", torch.zeros(num_features, **factory_kwargs)
+                "running_mean", torch.zeros(num_features, **factory_kwargs, requires_grad=False)
             )
             self.register_buffer(
-                "running_covariance", torch.eye(num_features, **factory_kwargs)
+                "running_covariance", torch.eye(num_features, **factory_kwargs, requires_grad=False)
             )
             self.register_buffer(
-                "running_whitening", torch.eye(num_features, **factory_kwargs)
+                "running_whitening", torch.eye(num_features, **factory_kwargs, requires_grad=False)
             )
             self.running_mean: Optional[Tensor]
             self.running_covariance: Optional[Tensor]
@@ -149,7 +149,7 @@ class Whitening2d(nn.Module):
         pass
 
     def calc_eye_sigma(self, xn, w_dim, batch_size, n):
-        eye = einops.repeat(torch.eye(w_dim).type(xn.type()), 
+        eye = einops.repeat(torch.eye(w_dim, requires_grad=False).type(xn.type()), 
                 "feats1 feats2 -> batch feats1 feats2", batch=batch_size).to(xn.device)
         if self.use_batch_whitening:
             n = n.sum()
