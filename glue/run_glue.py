@@ -592,13 +592,13 @@ def main():
                     'global_step': state.global_step
                     })
         
-        def on_evaluate(self, args, state, control, **kwargs):
-        # Log evaluation metrics (runs after evaluation)
-            if state.is_world_process_zero and hasattr(kwargs.get('model', None), 'eff_ranks'):
-                wandb.log({
-                    **kwargs['model'].eff_ranks,
-                    'global_step': state.global_step
-                })
+        # def on_evaluate(self, args, state, control, **kwargs):
+        # # Log evaluation metrics (runs after evaluation)
+        #     if state.is_world_process_zero and hasattr(kwargs.get('model', None), 'eff_ranks'):
+        #         wandb.log({
+        #             **kwargs['model'].eff_ranks,
+        #             'global_step': state.global_step
+        #         })
 
     # Initialize our Trainer
     trainer = Trainer(

@@ -27,6 +27,7 @@ class LoraRobertaClassifier(nn.Module):
         self.roberta = get_peft_model(self.roberta, config)
         self.eff_ranks = {}
         self.log_every=log_steps_eff_rank
+        self.log_step=0
         self._register_eff_rank_hooks()
 
         self.classifier = nn.Sequential(

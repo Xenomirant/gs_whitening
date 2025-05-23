@@ -28,6 +28,7 @@ class GSOFTRobertaClassifier(nn.Module):
         
         self.eff_ranks = {}
         self.log_every=log_steps_eff_rank
+        self.log_step=0
         self._register_eff_rank_hooks()
 
         self.classifier = nn.Sequential(
