@@ -57,6 +57,7 @@ class BOFTRobertaClassifier(nn.Module):
                 module.register_forward_hook(get_loss_hook(name))
 
     def forward(self, input_ids, attention_mask, labels=None, **batch):
+        self.eff_ranks = {}
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]
         logits = self.classifier(pooler)

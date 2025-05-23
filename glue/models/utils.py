@@ -9,6 +9,6 @@ def set_layer(model, name, layer):
     try:
         attrs, name = name.rsplit(".", 1)
         model = get_layer(model, attrs)
-    except ValueError:
-        pass
+    except ValueError as e:
+        print(e)
     setattr(model, name, layer)

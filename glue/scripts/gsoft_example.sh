@@ -9,7 +9,7 @@ python glue/run_glue.py \
 --num_train_epochs 25 --warmup_steps 100 \
 --output_dir /tmp/cola/ --overwrite_output_dir \
 --fp16 true \
---evaluation_strategy steps --eval_steps 100 \
+--eval_strategy steps --eval_steps 100 \
 --save_strategy steps --save_steps 10000 \
 --logging_steps 10 \
 --seed 42 \

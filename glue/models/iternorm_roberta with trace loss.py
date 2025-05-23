@@ -6,7 +6,7 @@ from transformers import RobertaModel
 from models.utils import set_layer
 from models.layers.whitening import Whitening2dIterNorm
 
-class IterNormRobertaClassifier(nn.Module):
+class IterNormTraceLossRobertaClassifier(nn.Module):
 
     supports_report_metrics: bool = True
 

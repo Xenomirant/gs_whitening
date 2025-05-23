@@ -44,6 +44,7 @@ from transformers import (
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint
+from hf_mtask_trainer import HfMultiTaskTrainer
 
 from utils import read_json
 
@@ -581,7 +582,7 @@ def main():
         data_collator = None
 
     # Initialize our Trainer
-    trainer = Trainer(
+    trainer = HfMultiTaskTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
