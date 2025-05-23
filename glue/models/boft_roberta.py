@@ -1,4 +1,5 @@
 import regex as re
+import torch
 from torch import nn as nn
 from transformers import RobertaModel
 from peft import BOFTConfig, get_peft_model
