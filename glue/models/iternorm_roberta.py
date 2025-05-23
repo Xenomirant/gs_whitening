@@ -3,7 +3,7 @@ import torch
 from torch import nn as nn
 from transformers import RobertaModel
 
-from models.utils import set_layer
+from models.utils import set_layer, singular_norm
 from models.layers.whitening import Whitening2dIterNorm
 
 
@@ -75,7 +75,8 @@ class IterNormRobertaClassifier(nn.Module):
                     else:
                         output_ = output.clone().detach()
                     self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
-                        torch.linalg.matrix_norm(output_, ord="fro", dim=(-2, -1))**2 / torch.linalg.matrix_norm(output_, ord=2, dim=(-2, -1))**2
+                        torch.linalg.matrix_norm(output_, 
+                                ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
                 return None
             return hook
@@ -91,6 +92,8 @@ class IterNormRobertaClassifier(nn.Module):
         if self.log_step % self.log_every == 0:
             self.eff_ranks = {}
             self.log_step=0
+
+        self.attention_mask = attention_mask
         
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]
