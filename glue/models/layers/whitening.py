@@ -52,8 +52,8 @@ class Whitening2d(nn.Module):
             self.running_whitening: Optional[Tensor]
         else:
             self.register_buffer("running_mean", None)
-            self.register_buffer("running_covariance")
-            self.running_whitening("running_whitening")
+            self.register_buffer("running_covariance", None)
+            self.register_buffer("running_whitening", None)
         self.reset_parameters()
 
         
