@@ -8,7 +8,7 @@ class BOFTRobertaClassifier(nn.Module):
 
     supports_report_metrics: bool = True
 
-    def __init__(self, n_classes, boft_block_size, boft_n_butterfly_factor, cls_dropout=0.1, boft_dropout=0.0, bias='none'):
+    def __init__(self, n_classes, boft_block_size, boft_n_butterfly_factor, cls_dropout=0.1, boft_dropout=0.0, bias='none', log_steps_eff_rank=10):
         super().__init__()
         self.roberta = RobertaModel.from_pretrained("roberta-base")
         
@@ -23,6 +23,7 @@ class BOFTRobertaClassifier(nn.Module):
 
         self.roberta = get_peft_model(self.roberta, config)
         self.eff_ranks = {}
+        self.log_every = log_steps_eff_rank
         self._register_eff_rank_hooks()
 
 
@@ -58,11 +59,16 @@ class BOFTRobertaClassifier(nn.Module):
                 module.register_forward_hook(get_loss_hook(name))
 
     def forward(self, input_ids, attention_mask, labels=None, **batch):
-        self.eff_ranks = {}
+        
+        if self.log_step % self.log_every == 0:
+            self.eff_ranks = {}
+            self.log_step=0
+
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]
         logits = self.classifier(pooler)
         # self.report_metrics(**self.eff_ranks)
+        self.log_step += 1
         if labels is not None:
             loss = self.criterion(logits.squeeze(), labels)
             return {"loss": loss, "logits": logits}

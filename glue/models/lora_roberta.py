@@ -8,7 +8,9 @@ class LoraRobertaClassifier(nn.Module):
 
     supports_report_metrics: bool = True
 
-    def __init__(self, n_classes, r, cls_dropout=0.1, lora_dropout=0.0, bias='none', use_dora=False):
+    def __init__(self, n_classes, r, cls_dropout=0.1, lora_dropout=0.0, 
+                 bias='none', use_dora=False,
+                 log_steps_eff_rank=10):
         super().__init__()
         self.roberta = RobertaModel.from_pretrained("roberta-base")
 
@@ -24,6 +26,7 @@ class LoraRobertaClassifier(nn.Module):
 
         self.roberta = get_peft_model(self.roberta, config)
         self.eff_ranks = {}
+        self.log_every=log_steps_eff_rank
         self._register_eff_rank_hooks()
 
         self.classifier = nn.Sequential(
@@ -41,11 +44,12 @@ class LoraRobertaClassifier(nn.Module):
         """Register hooks to calculate and store layer-wise losses"""
         def get_loss_hook(layer_name):
             def hook(module, input, output):
-                if isinstance(output, tuple):
-                    output = output[0].clone().detach()  # Handle cases where output is a tuple
-                self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
-                    torch.linalg.matrix_norm(output, ord="fro", dim=(-2, -1)) / torch.linalg.matrix_norm(output, ord=2, dim=(-2, -1))
-                    ).mean().item()
+                if self.log_step % self.log_every == 0:
+                    if isinstance(output, tuple):
+                        output = output[0].clone().detach()  # Handle cases where output is a tuple
+                    self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
+                        torch.linalg.matrix_norm(output, ord="fro", dim=(-2, -1)) / torch.linalg.matrix_norm(output, ord=2, dim=(-2, -1))
+                        ).mean().item()
                 return None
             return hook
 
@@ -56,10 +60,15 @@ class LoraRobertaClassifier(nn.Module):
                 module.register_forward_hook(get_loss_hook(name))
 
     def forward(self, input_ids, attention_mask, labels=None, **batch):
-        self.eff_ranks = {}
+        
+        if self.log_step % self.log_every == 0:
+            self.eff_ranks = {}
+            self.log_step=0
+        
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]
         logits = self.classifier(pooler)
+        self.log_step += 1
         # self.report_metrics(**self.eff_ranks)
         if labels is not None:
             loss = self.criterion(logits.squeeze(), labels)
