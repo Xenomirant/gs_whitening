@@ -8,9 +8,7 @@ from models.layers.whitening import Whitening2dIterNorm
 
 
 class IterNormRobertaClassifier(nn.Module):
-
-    supports_report_metrics: bool = True
-
+    
     def __init__(self, n_classes, cls_dropout=0.1,
         num_iterations=4, use_running_stats_train=True,
         use_batch_whitening=False, use_only_running_stats_eval=False,

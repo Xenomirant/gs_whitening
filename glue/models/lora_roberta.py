@@ -6,8 +6,6 @@ from peft import LoraConfig, get_peft_model
 
 class LoraRobertaClassifier(nn.Module):
 
-    supports_report_metrics: bool = True
-
     def __init__(self, n_classes, r, cls_dropout=0.1, lora_dropout=0.0, 
                  bias='none', use_dora=False,
                  log_steps_eff_rank=10):

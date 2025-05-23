@@ -6,8 +6,6 @@ from peft import BOFTConfig, get_peft_model
 
 class BOFTRobertaClassifier(nn.Module):
 
-    supports_report_metrics: bool = True
-
     def __init__(self, n_classes, boft_block_size, boft_n_butterfly_factor, cls_dropout=0.1, boft_dropout=0.0, bias='none', log_steps_eff_rank=10):
         super().__init__()
         self.roberta = RobertaModel.from_pretrained("roberta-base")

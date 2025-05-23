@@ -6,8 +6,6 @@ from transformers import RobertaModel
 
 class RobertaClassifier(nn.Module):
 
-    supports_report_metrics: bool = True
-
     def __init__(self, n_classes, cls_dropout=0.1, log_steps_eff_rank=10):
         super().__init__()
         

@@ -8,8 +8,6 @@ from models.layers.gsoft import GSOFTLayer
 
 class GSOFTRobertaClassifier(nn.Module):
 
-    supports_report_metrics: bool = True
-
     def __init__(self, n_classes, cls_dropout=0.1, nblocks=16, do_gsoft=True, orthogonal=True, method='cayley', block_size=None, scale=True, log_steps_eff_rank=10):
         super().__init__()
 
