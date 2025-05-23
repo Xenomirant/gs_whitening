@@ -47,6 +47,9 @@ class IterNormRobertaClassifier(nn.Module):
             self.criterion = nn.MSELoss()
         else:
             self.criterion = nn.CrossEntropyLoss()
+
+        for name, parameter in self.named_parameters():
+            parameter.requires_grad=True
         
     def _register_eff_rank_hooks(self):
         """Register hooks to calculate and store layer-wise losses"""

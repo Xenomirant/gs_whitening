@@ -612,6 +612,9 @@ def main():
         callbacks=[EffRankWandbLogCallback()]
     )
 
+    for name, parameter in model.named_parameters():
+        print(name, parameter.requires_grad)
+
     # Training
     if training_args.do_train:
         checkpoint = None
