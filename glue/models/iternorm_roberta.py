@@ -12,7 +12,7 @@ class IterNormRobertaClassifier(nn.Module):
     supports_report_metrics: bool = True
 
     def __init__(self, n_classes, cls_dropout=0.1,
-        norm_iterations=4, use_running_stats_train=True,
+        num_iterations=4, use_running_stats_train=True,
         use_batch_whitening=False, use_only_running_stats_eval=False,
         log_steps_eff_rank=10):
         super().__init__()
@@ -25,7 +25,7 @@ class IterNormRobertaClassifier(nn.Module):
                     weight, bias = module.weight.data, module.bias.data
 
                     wh_layer = Whitening2dIterNorm(num_features=emb_dim, 
-                                iterations=norm_iterations, use_batch_whitening=use_batch_whitening,
+                                iterations=num_iterations, use_batch_whitening=use_batch_whitening,
                                 use_running_stats_train=use_running_stats_train,
                                 use_only_running_stats_eval=use_only_running_stats_eval
                                 )
