@@ -187,3 +187,5 @@ err_logs/*
 wandb/
 sbatch_runs/
 checkpoints/
+glue/models_test.ipynb
+glue/requirements_bak.txt
