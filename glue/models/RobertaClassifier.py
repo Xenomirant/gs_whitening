@@ -41,7 +41,7 @@ class RobertaClassifier(nn.Module):
                     self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
                         torch.linalg.matrix_norm(output_, ord="fro", dim=(-2, -1))**2 / torch.linalg.matrix_norm(output_, ord=2, dim=(-2, -1))**2
                         ).mean().item()
-                return None
+                return output
             return hook
 
         # Register hooks for specific layers
