@@ -28,6 +28,9 @@ class IterNormRobertaClassifier(nn.Module):
                                 use_only_running_stats_eval=use_only_running_stats_eval
                                 )
                     wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
+                    
+                    wh_layer.register_forward_hook(self.get_attention_mask_hook())
+                    
                     print(f"Changling layer: {name}")
                     set_layer(self.roberta, name, wh_layer)
 
@@ -50,11 +53,22 @@ class IterNormRobertaClassifier(nn.Module):
 
         for name, parameter in self.named_parameters():
             parameter.requires_grad=True
-        
+    
+
+    def get_attention_mask_hook(self,):
+        def forward_hook(module, input, output):
+            if hasattr(self, 'attention_mask'):
+                module.attention_mask = self.attention_mask
+            return None
+        return forward_hook
+
+
     def _register_eff_rank_hooks(self):
         """Register hooks to calculate and store layer-wise losses"""
         def get_loss_hook(layer_name):
             def hook(module, input, output):
+                nonlocal layer_name
+
                 if self.log_step % self.log_every == 0:
                     if isinstance(output, tuple):
                         output_ = output[0].clone().detach()  # Handle cases where output is a tuple

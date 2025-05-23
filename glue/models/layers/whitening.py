@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import einops
 from torch import Tensor
+from models.utils import singular_norm
 from typing import Any, Optional
 
 
@@ -54,6 +55,8 @@ class Whitening2d(nn.Module):
             self.register_buffer("running_mean", None)
             self.register_buffer("running_covariance", None)
             self.register_buffer("running_whitening", None)
+        
+        self.register_buffer("attention_mask", None)
         self.reset_parameters()
 
         
@@ -75,7 +78,7 @@ class Whitening2d(nn.Module):
                 (1-self.momentum)*cur + self.momentum*value
                 )
 
-    def forward_train(self, x):
+    def forward_train(self, x, attention_mask):
         
         batch_size, w_dim = x.size(0), x.size(-1)
         
@@ -104,7 +107,7 @@ class Whitening2d(nn.Module):
         return decorrelated
     
     @torch.no_grad
-    def forward_test(self, x):
+    def forward_test(self, x, attention_mask):
 
         batch_size, w_dim = x.size(0), x.size(-1)
 
@@ -127,7 +130,10 @@ class Whitening2d(nn.Module):
         decorrelated = torch.bmm(xn, wh_matrix)
         return decorrelated
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
+        
+        attention_mask = getattr(self, "attention_mask")
+        print(attention_mask)
 
         if self.training:
             x = self.forward_train(x=x)

@@ -1,6 +1,7 @@
 import regex as re
 import torch
 from torch import nn as nn
+from models.utils import singular_norm
 from transformers import RobertaModel
 
 
@@ -26,8 +27,6 @@ class RobertaClassifier(nn.Module):
         else:
             self.criterion = nn.CrossEntropyLoss()
 
-        for name, parameter in self.named_parameters():
-            parameter.requires_grad=True
         
     def _register_eff_rank_hooks(self):
         """Register hooks to calculate and store layer-wise losses"""
@@ -38,8 +37,10 @@ class RobertaClassifier(nn.Module):
                         output_ = output[0].clone().detach()  # Handle cases where output is a tuple
                     else:
                         output_ = output.clone().detach()
+                        output_ = output_ * self.attention_mask[:, :, None]
                     self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
-                        torch.linalg.matrix_norm(output_, ord="fro", dim=(-2, -1))**2 / torch.linalg.matrix_norm(output_, ord=2, dim=(-2, -1))**2
+                        torch.linalg.matrix_norm(output_, 
+                                ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
                 return output
             return hook
@@ -55,6 +56,8 @@ class RobertaClassifier(nn.Module):
         if self.log_step % self.log_every == 0:
             self.eff_ranks = {}
             self.log_step=0
+        
+        self.attention_mask = attention_mask
 
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]
