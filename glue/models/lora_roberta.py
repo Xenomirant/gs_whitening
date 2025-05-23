@@ -45,6 +45,8 @@ class LoraRobertaClassifier(nn.Module):
         """Register hooks to calculate and store layer-wise losses"""
         def get_loss_hook(layer_name):
             def hook(module, input, output):
+                nonlocal layer_name
+
                 if self.log_step % self.log_every == 0:
                     if isinstance(output, tuple):
                         output = output[0].clone().detach()  # Handle cases where output is a tuple
