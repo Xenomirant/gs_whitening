@@ -42,10 +42,10 @@ class Whitening2d(nn.Module):
                 "running_mean", torch.zeros(num_features, **factory_kwargs)
             )
             self.register_buffer(
-                "running_covariance", torch.ones(num_features, num_features, **factory_kwargs)
+                "running_covariance", torch.eye(num_features, **factory_kwargs)
             )
             self.register_buffer(
-                "running_whitening", torch.ones(num_features, num_features, **factory_kwargs)
+                "running_whitening", torch.eye(num_features, **factory_kwargs)
             )
             self.running_mean: Optional[Tensor]
             self.running_covariance: Optional[Tensor]

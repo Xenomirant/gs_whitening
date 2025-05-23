@@ -16,6 +16,7 @@
 """ Finetuning the library models for sequence classification on GLUE."""
 # You can also adapt this script on your own text classification task. Pointers for this are left as comments.
 
+import wandb
 import logging
 import os
 import random
@@ -40,11 +41,12 @@ from transformers import (
     PretrainedConfig,
     Trainer,
     TrainingArguments,
+    TrainerCallback,
     default_data_collator,
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint
-from hf_mtask_trainer import HfMultiTaskTrainer
+# from hf_mtask_trainer import HfMultiTaskTrainer
 
 from utils import read_json
 
@@ -581,8 +583,25 @@ def main():
     else:
         data_collator = None
 
+    class EffRankWandbLogCallback(TrainerCallback):
+        def on_step_end(self, args, state, control, **kwargs):
+            if state.is_world_process_zero and args.logging_steps > 0 and state.global_step % args.logging_steps == 0:
+                if hasattr(kwargs.get('model', None), 'eff_ranks'):
+                    wandb.log({
+                    **kwargs['model'].eff_ranks,
+                    'global_step': state.global_step
+                    })
+        
+        def on_evaluate(self, args, state, control, **kwargs):
+        # Log evaluation metrics (runs after evaluation)
+            if state.is_world_process_zero and hasattr(kwargs.get('model', None), 'eff_ranks'):
+                wandb.log({
+                    **kwargs['model'].eff_ranks,
+                    'global_step': state.global_step
+                })
+
     # Initialize our Trainer
-    trainer = HfMultiTaskTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
@@ -590,6 +609,7 @@ def main():
         compute_metrics=compute_metrics,
         tokenizer=tokenizer,
         data_collator=data_collator,
+        callbacks=[EffRankWandbLogCallback()]
     )
 
     # Training

@@ -54,9 +54,9 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
             def hook(module, input, output):
                 if isinstance(output, tuple):
                     output = output[0].clone().detach()  # Handle cases where output is a tuple
-                self.eff_ranks[f"{layer_name}_eff_rank"] = (
+                self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
                     torch.linalg.matrix_norm(output, ord="fro", dim=(-2, -1)) / torch.linalg.matrix_norm(output, ord=2, dim=(-2, -1))
-                    ).mean()
+                    ).mean().item()
                 return None
             return hook
 
@@ -71,7 +71,7 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]
         logits = self.classifier(pooler)
-        self.report_metrics(**self.eff_ranks)
+        # self.report_metrics(**self.eff_ranks)
         if labels is not None:
             loss = self.criterion(logits.squeeze(), labels)
             return {"loss": loss, "logits": logits}
