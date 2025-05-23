@@ -75,7 +75,7 @@ class Whitening2d(nn.Module):
     def update_running_statistic(self, running_statistic, value):
         cur = getattr(self, running_statistic,)
         setattr(self, running_statistic, 
-                (1-self.momentum)*cur + self.momentum*value
+                (1-self.momentum)*cur + self.momentum*value.clone().detach()
                 )
 
     def forward_train(self, x, attention_mask, n):
