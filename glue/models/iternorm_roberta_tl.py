@@ -6,18 +6,17 @@ from transformers import RobertaModel
 from models.utils import set_layer
 from models.layers.whitening import Whitening2dIterNorm
 
-
 class IterNormTraceLossRobertaClassifier(nn.Module):
 
     supports_report_metrics: bool = True
 
-    def __init__(self, n_classes, cls_dropout=0.1,
+    def __init__(self, n_classes, cls_dropout=0.1, 
         norm_iterations=4, use_running_stats_train=True,
-        use_batch_whitening=False, use_only_running_stats_eval=False,
-                 ):
+        use_batch_whitening=False, use_only_running_stats_eval=False,):
         super().__init__()
         
         self.roberta = RobertaModel.from_pretrained("roberta-base")
+
         for name, module in self.roberta.named_modules():
             if re.search("encoder\.layer\.[0-9]+\.output", name):
                 if isinstance(module, nn.LayerNorm):
@@ -32,7 +31,6 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
                     wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
                     print(f"Changling layer: {name}")
                     set_layer(self.roberta, name, wh_layer)
-
 
         self.eff_ranks = {}
         self._register_eff_rank_hooks()
@@ -76,6 +74,3 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
             loss = self.criterion(logits.squeeze(), labels)
             return {"loss": loss, "logits": logits}
         return {"logits": logits}
-
-
-        
