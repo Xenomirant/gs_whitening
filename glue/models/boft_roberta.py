@@ -46,12 +46,12 @@ class BOFTRobertaClassifier(nn.Module):
                 nonlocal layer_name
 
                 if isinstance(output, tuple):
-                    output = output[0].clone().detach()  # Handle cases where output is a tuple
+                    output_ = output[0].clone().detach()  # Handle cases where output is a tuple
                 layer_name = layer_name.split("base_model.model.")[-1]
                 self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
-                    torch.linalg.matrix_norm(output, ord="fro", dim=(-2, -1))**2 / torch.linalg.matrix_norm(output, ord=2, dim=(-2, -1))**2
+                    torch.linalg.matrix_norm(output_, ord="fro", dim=(-2, -1))**2 / torch.linalg.matrix_norm(output_, ord=2, dim=(-2, -1))**2
                     ).mean().item()
-                return None
+                return output
             return hook
 
         # Register hooks for specific layers
