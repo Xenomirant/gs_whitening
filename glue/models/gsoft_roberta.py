@@ -74,7 +74,7 @@ class GSOFTRobertaClassifier(nn.Module):
             self.eff_ranks = {}
             self.log_step=0
 
-        self.attention_mask = attention_mask
+        self.attention_mask = attention_mask.detach()
         
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]
