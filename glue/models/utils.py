@@ -1,16 +1,16 @@
 import torch
 
-def l2normalize(v, axis=0, eps=1e-12):
+def l2normalize(v: torch.Tensor, axis=0, eps=1e-12) -> torch.Tensor:
     return v / (v.norm(dim=axis) + eps)
 
-def get_layer(model, name):
+def get_layer(model: torch.nn.Module, name: str) -> torch.nn.Module:
     layer = model
     for attr in name.split("."):
         layer = getattr(layer, attr)
     return layer
 
 
-def set_layer(model, name, layer):
+def set_layer(model: torch.nn.Module, name: str, layer: torch.nn.Module) -> None:
     try:
         attrs, name = name.rsplit(".", 1)
         model = get_layer(model, attrs)
@@ -19,7 +19,7 @@ def set_layer(model, name, layer):
     setattr(model, name, layer)
 
 @torch.no_grad()
-def singular_norm(input_tensor: torch.Tensor, power_iterations=20) -> torch.Tensor:
+def singular_norm(input_tensor: torch.Tensor, power_iterations: int=20) -> torch.Tensor:
 
     B, S, F = input_tensor.shape
 
