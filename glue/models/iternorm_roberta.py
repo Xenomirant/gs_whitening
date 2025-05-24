@@ -12,7 +12,7 @@ class IterNormRobertaClassifier(nn.Module):
     def __init__(self, n_classes, cls_dropout=0.1,
         num_iterations=4, use_running_stats_train=True,
         use_batch_whitening=False, use_only_running_stats_eval=False,
-        log_steps_eff_rank=10):
+        whitening_affine=True, log_steps_eff_rank=10):
         super().__init__()
         
         self.roberta = RobertaModel.from_pretrained("roberta-base")
@@ -26,9 +26,11 @@ class IterNormRobertaClassifier(nn.Module):
                     wh_layer = WhiteningSing2dIterNorm(num_features=emb_dim, 
                                 iterations=num_iterations, use_batch_whitening=use_batch_whitening,
                                 use_running_stats_train=use_running_stats_train,
-                                use_only_running_stats_eval=use_only_running_stats_eval
+                                use_only_running_stats_eval=use_only_running_stats_eval,
+                                affine=whitening_affine
                                 )
-                    wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
+                    if whitening_affine:
+                        wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
                     
                     wh_layer.register_forward_pre_hook(self._get_attention_mask_hook())
                     
@@ -71,11 +73,19 @@ class IterNormRobertaClassifier(nn.Module):
                 nonlocal layer_name
 
                 if self.log_step % self.log_every == 0:
+                    if isinstance(input, tuple):
+                        input_ = input[0].clone().detach()  # Handle cases where output is a tuple
+                    else:
+                        input_ = input.clone().detach()
+                    self.eff_ranks[f"train/input_{layer_name}_eff_rank"] = (
+                        torch.linalg.matrix_norm(input_, 
+                                ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
+                        ).mean().item()
                     if isinstance(output, tuple):
                         output_ = output[0].clone().detach()  # Handle cases where output is a tuple
                     else:
                         output_ = output.clone().detach()
-                    self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
+                    self.eff_ranks[f"train/output_{layer_name}_eff_rank"] = (
                         torch.linalg.matrix_norm(output_, 
                                 ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
@@ -84,7 +94,8 @@ class IterNormRobertaClassifier(nn.Module):
 
         # Register hooks for specific layers
         for name, module in self.roberta.named_modules():
-            if name == "embeddings" or re.search("encoder\.layer\.[0-9]+\.output$", name):
+            if ("embeddings" in name or re.search(r"encoder\.layer\.[0-9]+\.output", name)) \
+                    and (isinstance(module, nn.LayerNorm) or isinstance(module, WhiteningSing2dIterNorm)):
                 print(f"Setting hook on layer:{name}")
                 module.register_forward_hook(get_loss_hook(name))
 

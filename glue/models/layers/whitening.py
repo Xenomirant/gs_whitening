@@ -133,7 +133,7 @@ class Whitening2d(nn.Module):
         return decorrelated
 
     def forward(self, x, **kwargs):
-        
+    
         assert x.dim() == 3, "Whitening is not implemented for non-3D tensors"
 
         attention_mask = getattr(self, "attention_mask")
@@ -203,7 +203,11 @@ class WhiteningSing2dIterNorm(Whitening2d):
 
         projection = eye
         for _ in range(self.iterations):
-            projection = torch.baddbmm(projection, torch.matrix_power(projection, 3), sigma, beta=1.5, alpha=-0.5)
-        wm = projection.mul_(singval.reciprocal().sqrt())
+            projection_n = torch.baddbmm(projection, torch.matrix_power(projection, 3), sigma, beta=1.5, alpha=-0.5)
+            if (torch.bmm(projection_n.matrix_power(2), sigma) - eye).norm(p="fro") > (torch.bmm(projection.matrix_power(2), sigma) - eye).norm(p="fro"):
+                projection_n = projection
+                break
+            projection = projection_n
+        wm = projection_n.mul_(singval.reciprocal().sqrt())
         return wm
     

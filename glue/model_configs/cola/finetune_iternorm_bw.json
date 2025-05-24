@@ -4,10 +4,12 @@
       "args": {
         "n_classes": 2,
         "cls_dropout": 0.1,
-        "num_iterations": 4,
+        "num_iterations": 5,
         "use_batch_whitening": true,
         "use_running_stats_train": false,
-        "use_only_running_stats_eval": true
+        "use_only_running_stats_eval": true,
+        "whitening_affine": true,
+        "log_steps_eff_rank": 10
       }
     }
 }

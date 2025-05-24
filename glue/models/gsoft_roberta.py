@@ -50,12 +50,22 @@ class GSOFTRobertaClassifier(nn.Module):
         """Register hooks to calculate and store layer-wise losses"""
         def get_loss_hook(layer_name):
             def hook(module, input, output):
+                nonlocal layer_name
+
                 if self.log_step % self.log_every == 0:
+                    if isinstance(input, tuple):
+                        input_ = input[0].clone().detach()  # Handle cases where output is a tuple
+                    else:
+                        input_ = input.clone().detach()
+                    self.eff_ranks[f"train/input_{layer_name}_eff_rank"] = (
+                        torch.linalg.matrix_norm(input_, 
+                                ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
+                        ).mean().item()
                     if isinstance(output, tuple):
                         output_ = output[0].clone().detach()  # Handle cases where output is a tuple
                     else:
                         output_ = output.clone().detach()
-                    self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
+                    self.eff_ranks[f"train/output_{layer_name}_eff_rank"] = (
                         torch.linalg.matrix_norm(output_, 
                                 ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
@@ -64,7 +74,8 @@ class GSOFTRobertaClassifier(nn.Module):
 
         # Register hooks for specific layers
         for name, module in self.roberta.named_modules():
-            if name == "embeddings" or re.search(r"encoder\.layer\.[0-9]+\.output$", name):
+            if ("embeddings" in name or re.search(r"encoder\.layer\.[0-9]+\.output", name)) \
+                    and (isinstance(module, nn.LayerNorm)):
                 print(f"Setting hook on layer:{name}")
                 module.register_forward_hook(get_loss_hook(name))
 
