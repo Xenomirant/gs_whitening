@@ -65,7 +65,7 @@ class RobertaClassifier(nn.Module):
         if self.log_step % self.log_every == 0:
             self.log_step=0
         
-        self.eff_ranks = {}
+        self._eff_ranks = {}
         self.attention_mask = attention_mask
 
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)

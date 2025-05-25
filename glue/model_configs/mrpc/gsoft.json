@@ -3,7 +3,7 @@
         "type": "GSOFTRobertaClassifier",
         "args": {
           "n_classes": 2,
-          "cls_dropout": 0.0,
+          "cls_dropout": 0.1,
           "do_gsoft": true,
           "orthogonal": true,
           "method": "cayley",

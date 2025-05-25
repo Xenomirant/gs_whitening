@@ -45,7 +45,7 @@ class LoraRobertaClassifier(nn.Module):
         def get_loss_hook(layer_name):
             def hook(module, input, output):
                 nonlocal layer_name
-
+                layer_name = layer_name.split("base_model.model")[-1]
                 if self.log_step % self.log_every == 0:
                     if isinstance(input, tuple):
                         input_ = input[0].clone().detach()  # Handle cases where output is a tuple
@@ -69,7 +69,7 @@ class LoraRobertaClassifier(nn.Module):
         # Register hooks for specific layers
         for name, module in self.roberta.named_modules():
             if ("embeddings" in name or re.search(r"encoder\.layer\.[0-9]+\.output", name)) \
-                    and (isinstance(module, nn.LayerNorm) or isinstance(module, WhiteningMatrixSign2dIterNorm)):
+                    and (isinstance(module, nn.LayerNorm)):
                 print(f"Setting hook on layer:{name}")
                 module.register_forward_hook(get_loss_hook(name))
 

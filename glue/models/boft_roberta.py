@@ -45,7 +45,7 @@ class BOFTRobertaClassifier(nn.Module):
         def get_loss_hook(layer_name):
             def hook(module, input, output):
                 nonlocal layer_name
-
+                layer_name = layer_name.split("base_model.model")[-1]
                 if self.log_step % self.log_every == 0:
                     if isinstance(input, tuple):
                         input_ = input[0].clone().detach()  # Handle cases where output is a tuple
