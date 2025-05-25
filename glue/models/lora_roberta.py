@@ -20,11 +20,11 @@ class LoraRobertaClassifier(nn.Module):
             lora_dropout=lora_dropout,
             bias=bias,
             modules_to_save=[],
-            use_dora=use_dora
+            use_dora=use_dora,
         )
 
         self.roberta = get_peft_model(self.roberta, config)
-        self.eff_ranks = {}
+
         self.log_every=log_steps_eff_rank
         self.log_step=0
         self._register_eff_rank_hooks()
@@ -51,7 +51,7 @@ class LoraRobertaClassifier(nn.Module):
                         input_ = input[0].clone().detach()  # Handle cases where output is a tuple
                     else:
                         input_ = input.clone().detach()
-                    self.eff_ranks[f"train/input_{layer_name}_eff_rank"] = (
+                    self._eff_ranks[f"train/input_{layer_name}_eff_rank"] = (
                         torch.linalg.matrix_norm(input_, 
                                 ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
                         ).mean().item()
@@ -59,7 +59,7 @@ class LoraRobertaClassifier(nn.Module):
                         output_ = output[0].clone().detach()  # Handle cases where output is a tuple
                     else:
                         output_ = output.clone().detach()
-                    self.eff_ranks[f"train/output_{layer_name}_eff_rank"] = (
+                    self._eff_ranks[f"train/output_{layer_name}_eff_rank"] = (
                         torch.linalg.matrix_norm(output_, 
                                 ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
@@ -69,17 +69,17 @@ class LoraRobertaClassifier(nn.Module):
         # Register hooks for specific layers
         for name, module in self.roberta.named_modules():
             if ("embeddings" in name or re.search(r"encoder\.layer\.[0-9]+\.output", name)) \
-                    and (isinstance(module, nn.LayerNorm)):
+                    and (isinstance(module, nn.LayerNorm) or isinstance(module, WhiteningMatrixSign2dIterNorm)):
                 print(f"Setting hook on layer:{name}")
                 module.register_forward_hook(get_loss_hook(name))
 
     def forward(self, input_ids, attention_mask, labels=None, **batch):
         
         if self.log_step % self.log_every == 0:
-            self.eff_ranks = {}
             self.log_step=0
 
-        self.attention_mask = attention_mask.detach()
+        self._eff_ranks = {}
+        self.attention_mask = attention_mask
         
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]

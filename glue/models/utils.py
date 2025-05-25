@@ -34,11 +34,11 @@ def singular_norm(input_tensor: torch.Tensor, power_iterations: int=20) -> torch
     for _ in range(power_iterations):
         for b in range(B):
             w = input_tensor[b, :, :]
-            v[b] = l2normalize(torch.matmul(w, u[b]))
-            u[b] = l2normalize(torch.matmul(w.T, v[b]))
+            v[b, :] = l2normalize(torch.matmul(w, u[b, :]))
+            u[b, :] = l2normalize(torch.matmul(w.T, v[b, :]))
     for b in range(B):
         sigmas[b] = torch.matmul(
-            torch.matmul(v[b], input_tensor[b, :, :]), u[b]
+            torch.matmul(v[b,:], input_tensor[b, :, :]), u[b, :]
         )
         
     return sigmas

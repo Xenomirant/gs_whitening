@@ -4,12 +4,19 @@ from torch import nn as nn
 from transformers import RobertaModel
 
 from models.utils import set_layer
-from models.layers.whitening import WhiteningSing2dIterNorm
+from models.layers.whitening import WhiteningSing2dIterNorm, WhiteningMatrixSign2dIterNorm
 from models.utils import singular_norm
+from typing import Literal
+
+whitening_layer_type = {
+        "matrix_sign": WhiteningMatrixSign2dIterNorm, 
+        "matrix_root": WhiteningSing2dIterNorm,
+                            }
 
 class IterNormTraceLossRobertaClassifier(nn.Module):
 
     def __init__(self, n_classes, cls_dropout=0.1, 
+        iteration_type: Literal["matrix_sign", "matrix_root"] = "matrix_sign", 
         num_iterations=4, use_running_stats_train=True,
         use_batch_whitening=False, use_only_running_stats_eval=False,
         log_steps_eff_rank=10):
@@ -23,7 +30,7 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
                     emb_dim = module.weight.shape[0]
                     weight, bias = module.weight.data, module.bias.data
 
-                    wh_layer = WhiteningSing2dIterNorm(num_features=emb_dim, 
+                    wh_layer = whitening_layer_type[iteration_type](num_features=emb_dim, 
                                 iterations=num_iterations, use_batch_whitening=use_batch_whitening,
                                 use_running_stats_train=use_running_stats_train,
                                 use_only_running_stats_eval=use_only_running_stats_eval
@@ -35,7 +42,7 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
                     print(f"Changling layer: {name}")
                     set_layer(self.roberta, name, wh_layer)
 
-        self.eff_ranks = {}
+
         self.log_every = log_steps_eff_rank
         self.log_step=0
         self._register_eff_rank_hooks()
@@ -65,12 +72,22 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
         """Register hooks to calculate and store layer-wise losses"""
         def get_loss_hook(layer_name):
             def hook(module, input, output):
+                nonlocal layer_name
+
                 if self.log_step % self.log_every == 0:
+                    if isinstance(input, tuple):
+                        input_ = input[0].clone().detach()  # Handle cases where output is a tuple
+                    else:
+                        input_ = input.clone().detach()
+                    self._eff_ranks[f"train/input_{layer_name}_eff_rank"] = (
+                        torch.linalg.matrix_norm(input_, 
+                                ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
+                        ).mean().item()
                     if isinstance(output, tuple):
                         output_ = output[0].clone().detach()  # Handle cases where output is a tuple
                     else:
                         output_ = output.clone().detach()
-                    self.eff_ranks[f"train/{layer_name}_eff_rank"] = (
+                    self._eff_ranks[f"train/output_{layer_name}_eff_rank"] = (
                         torch.linalg.matrix_norm(output_, 
                                 ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
@@ -79,17 +96,18 @@ class IterNormTraceLossRobertaClassifier(nn.Module):
 
         # Register hooks for specific layers
         for name, module in self.roberta.named_modules():
-            if name == "embeddings" or re.search("encoder\.layer\.[0-9]+\.output$", name):
+            if ("embeddings" in name or re.search(r"encoder\.layer\.[0-9]+\.output", name)) \
+                    and (isinstance(module, nn.LayerNorm) or isinstance(module, WhiteningMatrixSign2dIterNorm)):
                 print(f"Setting hook on layer:{name}")
                 module.register_forward_hook(get_loss_hook(name))
 
     def forward(self, input_ids, attention_mask, labels=None, **batch):
         
         if self.log_step % self.log_every == 0:
-            self.eff_ranks = {}
             self.log_step=0
 
-        self.attention_mask = attention_mask.detach()
+        self._eff_ranks = {}
+        self.attention_mask = attention_mask
         
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]

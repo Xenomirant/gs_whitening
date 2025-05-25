@@ -586,9 +586,9 @@ def main():
     class EffRankWandbLogCallback(TrainerCallback):
         def on_step_end(self, args, state, control, **kwargs):
             if state.is_world_process_zero and args.logging_steps > 0 and state.global_step % args.logging_steps == 0:
-                if hasattr(kwargs.get('model', None), 'eff_ranks'):
+                if hasattr(kwargs.get('model', None), '_eff_ranks'):
                     wandb.log({
-                    **kwargs['model'].eff_ranks,
+                    **kwargs['model']._eff_ranks,
                     'global_step': state.global_step
                     })
         

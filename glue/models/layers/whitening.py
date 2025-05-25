@@ -181,7 +181,7 @@ class WhiteningTrace2dIterNorm(Whitening2d):
 
     def whiten_matrix(self, sigma, eye):
         trace = sigma.diagonal(offset=0, dim1=-2, dim2=-1).sum(-1)
-        trace = trace.reshape(sigma.size(0), 1, 1)
+        trace = trace[:, None, None]
         if self.use_diag_initialization:
             eye = eye * sigma.detach().diagonal(offset=0, dim1=-2, dim2=-1).reciprocal().sqrt()[:, :, None]
         sigma = sigma * trace.reciprocal()
@@ -196,7 +196,7 @@ class WhiteningSing2dIterNorm(Whitening2d):
 
     def whiten_matrix(self, sigma, eye):
         singval = singular_norm(input_tensor=sigma)
-        singval = singval.reshape(sigma.size(0), 1, 1)
+        singval = singval[:, None, None]
         if self.use_diag_initialization:
             eye = eye * sigma.detach().diagonal(offset=0, dim1=-2, dim2=-1).reciprocal().sqrt()[:, :, None]
         sigma = sigma * singval.reciprocal()
@@ -211,3 +211,40 @@ class WhiteningSing2dIterNorm(Whitening2d):
         wm = projection_n.mul_(singval.reciprocal().sqrt())
         return wm
     
+
+class WhiteningMatrixSign2dIterNorm(Whitening2d):
+
+    def create_block_sigma(self, sigma: torch.Tensor, eye: torch.Tensor) -> torch.Tensor:
+
+        factory_kwargs = {"device": sigma.device, "dtype": sigma.dtype}
+        
+        zeros = torch.zeros_like(sigma, **factory_kwargs, requires_grad=False)
+        
+        # Create the block matrix [[0, sigma], [I, 0]]
+        O_A = torch.cat([zeros, sigma], dim=2)
+        I_O = torch.cat([eye, zeros], dim=2)
+        block_sigma = torch.cat([O_A, I_O], dim=1)
+        
+        return block_sigma
+
+
+    def whiten_matrix(self, sigma: torch.Tensor, eye: torch.Tensor) -> torch.Tensor:
+        feats_size = sigma.size(1)
+
+        block_sigma = self.create_block_sigma(sigma=sigma, eye=eye)
+
+        singval = singular_norm(input_tensor=block_sigma)
+        singval = singval[:, None, None]
+        block_sigma = block_sigma * singval.reciprocal()
+
+        projection = block_sigma
+        for _ in range(self.iterations):
+            projection_n = 1.5 * projection - 0.5*torch.matrix_power(projection, 3)
+            wn = projection_n[:, feats_size:, :feats_size]
+            # if (torch.bmm(wn.matrix_power(2).mul(singval.reciprocal()), sigma) - eye).norm(p="fro") > (torch.bmm(wn.matrix_power(2).mul(singval.reciprocal()), sigma) - eye).norm(p="fro"):
+            #     wn = projection[:, feats_size:, :feats_size]
+
+            #     break
+            projection = projection_n
+        wm = wn.mul(singval.reciprocal().sqrt())
+        return wm
