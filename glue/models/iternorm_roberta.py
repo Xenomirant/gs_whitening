@@ -19,7 +19,7 @@ class IterNormRobertaClassifier(nn.Module):
         iteration_type: Literal["matrix_sign", "matrix_root"] = "matrix_sign", 
         num_iterations=4, use_running_stats_train=True,
         use_batch_whitening=False, use_only_running_stats_eval=False,
-        whitening_affine=True, log_steps_eff_rank=1):
+        whitening_affine=True, log_steps_eff_rank=10):
         super().__init__()
         
         self.roberta = RobertaModel.from_pretrained("roberta-base")
@@ -27,7 +27,7 @@ class IterNormRobertaClassifier(nn.Module):
         for name, module in self.roberta.named_modules():
             if re.search(r"encoder\.layer\.[0-9]+\.output", name):
                 if isinstance(module, nn.LayerNorm):
-                    emb_dim = module.weight.shape[0]
+                    emb_dim = self.roberta.config.hidden_size
                     weight, bias = module.weight.data, module.bias.data
 
                     wh_layer = whitening_layer_type[iteration_type](num_features=emb_dim, 

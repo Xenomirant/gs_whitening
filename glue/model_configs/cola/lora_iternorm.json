@@ -1,0 +1,20 @@
+{
+    "arch": {
+        "type": "LoraRobertaClassifier",
+        "args": {
+          "n_classes": 2,
+          "cls_dropout": 0.1,
+          "r": 8,
+          "lora_dropout": 0.0,
+          "use_whitening": true,
+          "whitening_params": {
+            "iteration_type": "matrix_root",
+            "num_iterations": 1,
+            "use_batch_whitening": false,
+            "use_running_stats_train": false,
+            "use_only_running_stats_eval": true,
+            "whitening_affine": false
+          }
+        }
+      }
+}

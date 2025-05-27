@@ -7,10 +7,15 @@ from peft import LoraConfig, get_peft_model
 from models.utils import set_layer, singular_norm
 from models.layers.whitening import WhiteningSing2dIterNorm, WhiteningMatrixSign2dIterNorm
 
+whitening_layer_type = {
+        "matrix_sign": WhiteningMatrixSign2dIterNorm, 
+        "matrix_root": WhiteningSing2dIterNorm,
+                            }
+
 class LoraRobertaClassifier(nn.Module):
 
     def __init__(self, n_classes, r, cls_dropout=0.1, lora_dropout=0.0, 
-                 bias='none', use_dora=False,
+                 bias='none', use_dora=False, use_whitening=False, whitening_params = None,
                  log_steps_eff_rank=10):
         super().__init__()
         self.roberta = RobertaModel.from_pretrained("roberta-base")
@@ -26,6 +31,29 @@ class LoraRobertaClassifier(nn.Module):
         )
 
         self.roberta = get_peft_model(self.roberta, config)
+        
+        if use_whitening:
+            for name, module in self.roberta.named_modules():
+                if re.search(r"encoder\.layer\.[0-9]+\.output", name):
+                    if isinstance(module, nn.LayerNorm):
+                        emb_dim = self.roberta.config.hidden_size
+                        weight, bias = module.weight.data, module.bias.data
+
+                        if whitening_params is None:
+                            whitening_params = {}
+                        
+                        iteration_type = whitening_params.get("iteration_type", "matrix_sign")
+                        whitening_params["num_features"] = emb_dim
+                        wh_layer = whitening_layer_type[iteration_type]()
+                        
+                        if whitening_params.get("whitening_affine", False):
+                            wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
+                        
+                        wh_layer.register_forward_pre_hook(self._get_attention_mask_hook())
+                        
+                        print(f"Changling layer: {name}")
+                        set_layer(self.roberta, name, wh_layer)
+
 
         self.log_every=log_steps_eff_rank
         self.log_step=0
