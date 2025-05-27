@@ -5,6 +5,7 @@ from transformers import RobertaModel
 from models.utils import get_layer, set_layer, singular_norm
 
 from models.layers.gsoft import GSOFTLayer
+from models.layers.whitening import WhiteningSing2dIterNorm, WhiteningMatrixSign2dIterNorm
 
 class GSOFTRobertaClassifier(nn.Module):
 
@@ -26,6 +27,7 @@ class GSOFTRobertaClassifier(nn.Module):
         
         self.log_every=log_steps_eff_rank
         self.log_step=0
+        self._eff_ranks = {}
         self._register_eff_rank_hooks()
 
         self.classifier = nn.Sequential(
@@ -49,26 +51,34 @@ class GSOFTRobertaClassifier(nn.Module):
         """Register hooks to calculate and store layer-wise losses"""
         def get_loss_hook(layer_name):
             def hook(module, input, output):
-                nonlocal layer_name
-
                 if self.log_step % self.log_every == 0:
+                    current_layer = layer_name
+                    
                     if isinstance(input, tuple):
-                        input_ = input[0].clone().detach()  # Handle cases where output is a tuple
+                        input_ = input[0].clone().detach()
                     else:
                         input_ = input.clone().detach()
-                    self._eff_ranks[f"train/input_{layer_name}_eff_rank"] = (
+                    
+                    input_eff_rank = (
                         torch.linalg.matrix_norm(input_, 
                                 ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
                         ).mean().item()
+                    
                     if isinstance(output, tuple):
-                        output_ = output[0].clone().detach()  # Handle cases where output is a tuple
+                        output_ = output[0].clone().detach()
                     else:
                         output_ = output.clone().detach()
-                    self._eff_ranks[f"train/output_{layer_name}_eff_rank"] = (
+                    
+                    output_eff_rank = (
                         torch.linalg.matrix_norm(output_, 
                                 ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
-                return None
+                    
+
+                    self._eff_ranks[f"train/input_{current_layer}_eff_rank"] = input_eff_rank
+                    self._eff_ranks[f"train/output_{current_layer}_eff_rank"] = output_eff_rank
+                
+                return output
             return hook
 
         # Register hooks for specific layers
@@ -81,9 +91,9 @@ class GSOFTRobertaClassifier(nn.Module):
     def forward(self, input_ids, attention_mask, labels=None, **batch):
         
         if self.log_step % self.log_every == 0:
+            self._eff_ranks = {}
             self.log_step=0
 
-        self._eff_ranks = {}
         self.attention_mask = attention_mask
         
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)

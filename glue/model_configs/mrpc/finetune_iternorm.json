@@ -5,7 +5,7 @@
         "n_classes": 2,
         "cls_dropout": 0.1,
         "iteration_type": "matrix_sign",
-        "num_iterations": 5,
+        "num_iterations": 3,
         "use_batch_whitening": false,
         "use_running_stats_train": false,
         "use_only_running_stats_eval": true,
