@@ -20,6 +20,7 @@ class Whitening2d(nn.Module):
         affine: bool = True,
         device=None,
         dtype=None,
+        **kwargs
                 ):
         super(Whitening2d, self).__init__()
         factory_kwargs = {"device": device, "dtype": dtype}

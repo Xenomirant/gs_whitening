@@ -44,7 +44,7 @@ class LoraRobertaClassifier(nn.Module):
                         
                         iteration_type = whitening_params.get("iteration_type", "matrix_sign")
                         whitening_params["num_features"] = emb_dim
-                        wh_layer = whitening_layer_type[iteration_type]()
+                        wh_layer = whitening_layer_type[iteration_type](**whitening_params)
                         
                         if whitening_params.get("whitening_affine", False):
                             wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
