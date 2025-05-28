@@ -148,8 +148,12 @@ class Whitening2d(nn.Module):
             x = self.forward_train(x=x, attention_mask=attention_mask, n=n)
         else:
             x = self.forward_test(x=x, attention_mask=attention_mask, n=n)
-        if self.affine:
-            x = self.weight*x + self.bias
+
+        # reapply layer norm
+        x = torch.nn.functional.layer_norm(input=x, 
+                                           normalized_shape=self.num_features, 
+                                           weight=self.weight, bias=self.bias, float=1e-6)
+ 
         return x
 
     @abc.abstractmethod

@@ -27,10 +27,10 @@ class IterNormRobertaClassifier(nn.Module):
         for name, module in self.roberta.named_modules():
             if re.search(r"encoder\.layer\.[0-9]+\.output", name):
                 if isinstance(module, nn.LayerNorm):
-                    emb_dim = self.roberta.config.hidden_size
+                    num_features = self.roberta.config.hidden_size
                     weight, bias = module.weight.data, module.bias.data
 
-                    wh_layer = whitening_layer_type[iteration_type](num_features=emb_dim, 
+                    wh_layer = whitening_layer_type[iteration_type](num_features=num_features, 
                                 iterations=num_iterations, use_batch_whitening=use_batch_whitening,
                                 use_running_stats_train=use_running_stats_train,
                                 use_only_running_stats_eval=use_only_running_stats_eval,
@@ -79,35 +79,31 @@ class IterNormRobertaClassifier(nn.Module):
         """Register hooks to calculate and store layer-wise losses"""
         def get_loss_hook(layer_name):
             def hook(module, input, output):
-                if self.log_step % self.log_every == 0:
-                    
-                    current_layer = layer_name
-                    
-                    if isinstance(input, tuple):
-                        input_ = input[0].clone().detach()
-                    else:
-                        input_ = input.clone().detach()
-                    
-                    input_eff_rank = (
-                        torch.linalg.matrix_norm(input_, 
-                                ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
-                        ).mean().item()
-                    
-                    if isinstance(output, tuple):
-                        output_ = output[0].clone().detach()
-                    else:
-                        output_ = output.clone().detach()
-                    
-                    output_eff_rank = (
-                        torch.linalg.matrix_norm(output_, 
-                                ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
-                        ).mean().item()
-                    
+                with torch.no_grad():
+                    if self.log_step % self.log_every == 0:
+                        current_layer = layer_name
+                        
+                        if isinstance(input, tuple):
+                            input_ = input[0].clone().detach()
+                        else:
+                            input_ = input.clone().detach()
+                        input_eff_rank = (
+                            torch.linalg.matrix_norm(input_, 
+                                    ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
+                            ).mean().item()
+                        
+                        if isinstance(output, tuple):
+                            output_ = output[0].clone().detach()
+                        else:
+                            output_ = output.clone().detach()
+                        output_eff_rank = (
+                            torch.linalg.matrix_norm(output_, 
+                                    ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
+                            ).mean().item()
 
-                    self._eff_ranks[f"train/input_{current_layer}_eff_rank"] = input_eff_rank
-                    self._eff_ranks[f"train/output_{current_layer}_eff_rank"] = output_eff_rank
-                
-                return output
+                        self._eff_ranks[f"train/input_{current_layer}_eff_rank"] = input_eff_rank
+                        self._eff_ranks[f"train/output_{current_layer}_eff_rank"] = output_eff_rank
+                return None
             return hook
 
         # Register hooks for specific layers

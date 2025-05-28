@@ -45,7 +45,7 @@ class BOFTRobertaClassifier(nn.Module):
                         iteration_type = whitening_params.get("iteration_type", "matrix_sign")
                         whitening_params["num_features"] = emb_dim
                         wh_layer = whitening_layer_type[iteration_type](**whitening_params)
-                        
+
                         if whitening_params.get("whitening_affine", False):
                             wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
                         
@@ -72,20 +72,26 @@ class BOFTRobertaClassifier(nn.Module):
             self.criterion = nn.MSELoss()
         else:
             self.criterion = nn.CrossEntropyLoss()
+
+
+    def _get_attention_mask_hook(self,):
+        def forward_hook(module, input,):
+            if hasattr(self, 'attention_mask'):
+                module.attention_mask = self.attention_mask
+            return None
+        return forward_hook
         
     def _register_eff_rank_hooks(self):
         """Register hooks to calculate and store layer-wise losses"""
         def get_loss_hook(layer_name):
             def hook(module, input, output):
                 if self.log_step % self.log_every == 0:
-                    
                     current_layer = layer_name.split("base_model.model.")[-1]
-                    
+
                     if isinstance(input, tuple):
                         input_ = input[0].clone().detach()
                     else:
                         input_ = input.clone().detach()
-                    
                     input_eff_rank = (
                         torch.linalg.matrix_norm(input_, 
                                 ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
@@ -95,23 +101,22 @@ class BOFTRobertaClassifier(nn.Module):
                         output_ = output[0].clone().detach()
                     else:
                         output_ = output.clone().detach()
-                    
                     output_eff_rank = (
                         torch.linalg.matrix_norm(output_, 
                                 ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
                         ).mean().item()
-                    
 
                     self._eff_ranks[f"train/input_{current_layer}_eff_rank"] = input_eff_rank
                     self._eff_ranks[f"train/output_{current_layer}_eff_rank"] = output_eff_rank
-                
-                return output
+                return None
             return hook
 
         # Register hooks for specific layers
         for name, module in self.roberta.named_modules():
             if ("embeddings" in name or re.search(r"encoder\.layer\.[0-9]+\.output", name)) \
-                    and (isinstance(module, nn.LayerNorm)):
+                    and (isinstance(module, nn.LayerNorm) or \
+                        isinstance(module, WhiteningSing2dIterNorm) or \
+                            isinstance(module,WhiteningSing2dIterNorm)):
                 print(f"Setting hook on layer:{name}")
                 module.register_forward_hook(get_loss_hook(name))
 
