@@ -151,8 +151,8 @@ class Whitening2d(nn.Module):
 
         # reapply layer norm
         x = torch.nn.functional.layer_norm(input=x, 
-                                           normalized_shape=self.num_features, 
-                                           weight=self.weight, bias=self.bias, float=1e-6)
+                                           normalized_shape=(self.num_features,), 
+                                           weight=self.weight, bias=self.bias, eps=1e-6)
  
         return x
 
@@ -194,7 +194,7 @@ class WhiteningTrace2dIterNorm(Whitening2d):
         projection = eye
         for _ in range(self.iterations):
             projection = torch.baddbmm(projection, torch.matrix_power(projection, 3), sigma, beta=1.5, alpha=-0.5)
-        wm = projection.mul_(trace.reciprocal().sqrt())
+        wm = projection.mul(trace.reciprocal().sqrt())
         return wm
 
 class WhiteningSing2dIterNorm(Whitening2d):
@@ -207,13 +207,17 @@ class WhiteningSing2dIterNorm(Whitening2d):
         sigma = sigma * singval.reciprocal()
 
         projection = eye
-        for _ in range(self.iterations):
-            projection_n = torch.baddbmm(projection, torch.matrix_power(projection, 3), sigma, beta=1.5, alpha=-0.5)
-            if (torch.bmm(projection_n.matrix_power(2), sigma) - eye).norm(p="fro") > (torch.bmm(projection.matrix_power(2), sigma) - eye).norm(p="fro"):
-                projection_n = projection
-                break
-            projection = projection_n
-        wm = projection_n.mul_(singval.reciprocal().sqrt())
+        if self.iterations == 0:
+            projection_n = projection
+        else:
+            for _ in range(self.iterations):
+                projection_n = torch.baddbmm(projection, torch.matrix_power(projection, 3), sigma, beta=1.5, alpha=-0.5)
+                if (torch.bmm(projection_n.matrix_power(2), sigma) - eye).norm(p="fro") > (torch.bmm(projection.matrix_power(2), sigma) - eye).norm(p="fro"):
+                    projection_n = projection
+                    break
+
+                projection = projection_n
+        wm = projection_n.mul(singval.reciprocal().sqrt())
         return wm
     
 
@@ -243,13 +247,17 @@ class WhiteningMatrixSign2dIterNorm(Whitening2d):
         block_sigma = block_sigma * singval.reciprocal()
 
         projection = block_sigma
-        for _ in range(self.iterations):
-            projection_n = 1.5 * projection - 0.5*torch.matrix_power(projection, 3)
-            wn = projection_n[:, feats_size:, :feats_size]
-            # if (torch.bmm(wn.matrix_power(2).mul(singval.reciprocal()), sigma) - eye).norm(p="fro") > (torch.bmm(wn.matrix_power(2).mul(singval.reciprocal()), sigma) - eye).norm(p="fro"):
-            #     wn = projection[:, feats_size:, :feats_size]
 
-            #     break
-            projection = projection_n
+        if self.iterations == 0:
+            wn = projection[:, feats_size:, :feats_size]
+        else:
+            for _ in range(self.iterations):
+                projection_n = 1.5 * projection - 0.5*torch.matrix_power(projection, 3)
+                wn = projection_n[:, feats_size:, :feats_size]
+                if (torch.bmm(wn.matrix_power(2).mul(singval.reciprocal()), sigma) - eye).norm(p="fro") > (torch.bmm(wn.matrix_power(2).mul(singval.reciprocal()), sigma) - eye).norm(p="fro"):
+                    wn = projection[:, feats_size:, :feats_size]
+                    break
+
+                projection = projection_n
         wm = wn.mul(singval.reciprocal().sqrt())
         return wm
