@@ -2,14 +2,16 @@ import regex as re
 import torch
 from torch import nn as nn
 from transformers import RobertaModel
-from models.utils import get_layer, set_layer, singular_norm
+from models.utils import get_layer, set_layer, singular_norm, trace_loss
 
 from models.layers.gsoft import GSOFTLayer
 from models.layers.whitening import WhiteningSing2dIterNorm, WhiteningMatrixSign2dIterNorm
+from models.layers.roberta_abc import ABCRobertaClassifier
 
-class GSOFTRobertaClassifier(nn.Module):
-
-    def __init__(self, n_classes, cls_dropout=0.1, nblocks=16, do_gsoft=True, orthogonal=True, method='cayley', block_size=None, scale=True, log_steps_eff_rank=10):
+class GSOFTRobertaClassifier(ABCRobertaClassifier):
+    def __init__(self, n_classes, cls_dropout=0.1, nblocks=16, do_gsoft=True, orthogonal=True, method='cayley', block_size=None, scale=True, 
+                 remove_biases=False,
+                 log_steps_eff_rank=10):
         super().__init__()
 
         self.roberta = RobertaModel.from_pretrained("roberta-base")
@@ -30,11 +32,14 @@ class GSOFTRobertaClassifier(nn.Module):
         self._eff_ranks = {}
         self._register_eff_rank_hooks()
 
+        if remove_biases:
+            self.remove_biases()
+
         self.classifier = nn.Sequential(
-            nn.Linear(768, 768),
+            nn.Linear(768, 768, bias=False if remove_biases else True),
             nn.ReLU(),
             nn.Dropout(cls_dropout),
-            nn.Linear(768, n_classes))
+            nn.Linear(768, n_classes, bias=False if remove_biases else True))
         
         if n_classes == 1:
             self.criterion = nn.MSELoss()
@@ -46,47 +51,7 @@ class GSOFTRobertaClassifier(nn.Module):
             for name, param in self.roberta.named_parameters():
                 if "gsoft_" not in name:
                     param.requires_grad = False
-
-    def _register_eff_rank_hooks(self):
-        """Register hooks to calculate and store layer-wise losses"""
-        def get_loss_hook(layer_name):
-            def hook(module, input, output):
-                if self.log_step % self.log_every == 0:
-                    current_layer = layer_name
-                    
-                    if isinstance(input, tuple):
-                        input_ = input[0].clone().detach()
-                    else:
-                        input_ = input.clone().detach()
-                    
-                    input_eff_rank = (
-                        torch.linalg.matrix_norm(input_, 
-                                ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
-                        ).mean().item()
-                    
-                    if isinstance(output, tuple):
-                        output_ = output[0].clone().detach()
-                    else:
-                        output_ = output.clone().detach()
-                    
-                    output_eff_rank = (
-                        torch.linalg.matrix_norm(output_, 
-                                ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
-                        ).mean().item()
-                    
-
-                    self._eff_ranks[f"train/input_{current_layer}_eff_rank"] = input_eff_rank
-                    self._eff_ranks[f"train/output_{current_layer}_eff_rank"] = output_eff_rank
-                
-                return output
-            return hook
-
-        # Register hooks for specific layers
-        for name, module in self.roberta.named_modules():
-            if ("embeddings" in name or re.search(r"encoder\.layer\.[0-9]+\.output", name)) \
-                    and (isinstance(module, nn.LayerNorm)):
-                print(f"Setting hook on layer:{name}")
-                module.register_forward_hook(get_loss_hook(name))
+        
 
     def forward(self, input_ids, attention_mask, labels=None, **batch):
         

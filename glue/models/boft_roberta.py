@@ -5,18 +5,21 @@ from transformers import RobertaModel
 from peft import BOFTConfig, get_peft_model
 
 from models.utils import set_layer, singular_norm
-from models.layers.whitening import WhiteningSing2dIterNorm, WhiteningMatrixSign2dIterNorm
+from models.layers.whitening import WhiteningSing2dIterNorm, WhiteningMatrixSign2dIterNorm, WhiteningTrace2dIterNorm
+from models.layers.roberta_abc import ABCRobertaClassifier
 
 whitening_layer_type = {
         "matrix_sign": WhiteningMatrixSign2dIterNorm, 
         "matrix_root": WhiteningSing2dIterNorm,
+        "matrix_trace": WhiteningTrace2dIterNorm
                             }
 
-class BOFTRobertaClassifier(nn.Module):
+class BOFTRobertaClassifier(ABCRobertaClassifier):
 
     def __init__(self, n_classes, boft_block_size, boft_n_butterfly_factor, 
             cls_dropout=0.1, boft_dropout=0.0, 
-            bias='none', use_whitening=False, whitening_params = None,
+            peft_bias='none', use_whitening=False, whitening_params = None,
+            remove_biases=False, use_trace_loss=False,
             log_steps_eff_rank=10):
         super().__init__()
         self.roberta = RobertaModel.from_pretrained("roberta-base")
@@ -26,11 +29,12 @@ class BOFTRobertaClassifier(nn.Module):
             boft_n_butterfly_factor=boft_n_butterfly_factor,
             target_modules=["query", "value", "key", "output.dense", "intermediate.dense"],
             boft_dropout=boft_dropout,
-            bias=bias,
+            bias=peft_bias,
             modules_to_save=[]
         )
 
         self.roberta = get_peft_model(self.roberta, config)
+        self.trace_loss = torch.tensor([0], requires_grad=True, device=self.roberta.device)
 
         if use_whitening:
             for name, module in self.roberta.named_modules():
@@ -42,7 +46,7 @@ class BOFTRobertaClassifier(nn.Module):
                         if whitening_params is None:
                             whitening_params = {}
                         
-                        iteration_type = whitening_params.get("iteration_type", "matrix_sign")
+                        iteration_type = whitening_params.get("iteration_type", "matrix_root")
                         whitening_params["num_features"] = emb_dim
                         wh_layer = whitening_layer_type[iteration_type](**whitening_params)
 
@@ -50,9 +54,15 @@ class BOFTRobertaClassifier(nn.Module):
                             wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
                         
                         wh_layer.register_forward_pre_hook(self._get_attention_mask_hook())
+
+                        if use_trace_loss:
+                            wh_layer.register_forward_hook(self._get_trace_loss_hook())
                         
                         print(f"Changling layer: {name}")
                         set_layer(self.roberta, name, wh_layer)
+
+        if remove_biases:
+            self.remove_biases()
 
         self.log_every = log_steps_eff_rank
         self.log_step=0
@@ -61,10 +71,10 @@ class BOFTRobertaClassifier(nn.Module):
 
 
         self.classifier = nn.Sequential(
-            nn.Linear(768, 768),
+            nn.Linear(768, 768, bias=False if remove_biases else True),
             nn.ReLU(),
             nn.Dropout(cls_dropout),
-            nn.Linear(768, n_classes))
+            nn.Linear(768, n_classes, bias=False if remove_biases else True))
         
         self.criterion = nn.CrossEntropyLoss()
 
@@ -72,53 +82,6 @@ class BOFTRobertaClassifier(nn.Module):
             self.criterion = nn.MSELoss()
         else:
             self.criterion = nn.CrossEntropyLoss()
-
-
-    def _get_attention_mask_hook(self,):
-        def forward_hook(module, input,):
-            if hasattr(self, 'attention_mask'):
-                module.attention_mask = self.attention_mask
-            return None
-        return forward_hook
-        
-    def _register_eff_rank_hooks(self):
-        """Register hooks to calculate and store layer-wise losses"""
-        def get_loss_hook(layer_name):
-            def hook(module, input, output):
-                if self.log_step % self.log_every == 0:
-                    current_layer = layer_name.split("base_model.model.")[-1]
-
-                    if isinstance(input, tuple):
-                        input_ = input[0].clone().detach()
-                    else:
-                        input_ = input.clone().detach()
-                    input_eff_rank = (
-                        torch.linalg.matrix_norm(input_, 
-                                ord="fro", dim=(-2, -1))**2 / singular_norm(input_)**2
-                        ).mean().item()
-                    
-                    if isinstance(output, tuple):
-                        output_ = output[0].clone().detach()
-                    else:
-                        output_ = output.clone().detach()
-                    output_eff_rank = (
-                        torch.linalg.matrix_norm(output_, 
-                                ord="fro", dim=(-2, -1))**2 / singular_norm(output_)**2
-                        ).mean().item()
-
-                    self._eff_ranks[f"train/input_{current_layer}_eff_rank"] = input_eff_rank
-                    self._eff_ranks[f"train/output_{current_layer}_eff_rank"] = output_eff_rank
-                return None
-            return hook
-
-        # Register hooks for specific layers
-        for name, module in self.roberta.named_modules():
-            if ("embeddings" in name or re.search(r"encoder\.layer\.[0-9]+\.output", name)) \
-                    and (isinstance(module, nn.LayerNorm) or \
-                        isinstance(module, WhiteningSing2dIterNorm) or \
-                            isinstance(module,WhiteningSing2dIterNorm)):
-                print(f"Setting hook on layer:{name}")
-                module.register_forward_hook(get_loss_hook(name))
 
     def forward(self, input_ids, attention_mask, labels=None, **batch):
         
@@ -135,6 +98,7 @@ class BOFTRobertaClassifier(nn.Module):
         self.log_step += 1
         if labels is not None:
             loss = self.criterion(logits.squeeze(), labels)
+            loss += self.trace_loss
             return {"loss": loss, "logits": logits}
         return {"logits": logits}
 
