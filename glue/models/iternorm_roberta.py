@@ -21,14 +21,13 @@ class IterNormRobertaClassifier(ABCRobertaClassifier):
         iteration_type: Literal["matrix_sign", "matrix_root"] = "matrix_sign", 
         num_iterations=4, use_running_stats_train=True,
         use_batch_whitening=False, use_only_running_stats_eval=False,
-        whitening_affine=True, 
-        remove_biases=False,
-        use_trace_loss=False,
+        whitening_affine=True, remove_biases=False,
+        use_trace_loss=False, trace_loss_trade_off = 0.01,
         log_steps_eff_rank=10):
         super().__init__()
         
         self.roberta = RobertaModel.from_pretrained("roberta-base")
-        self.trace_loss = torch.tensor([0], requires_grad=True, device=self.roberta.device)
+        self.trace_loss_trade_off=trace_loss_trade_off
 
         for name, module in self.roberta.named_modules():
             if re.search(r"encoder\.layer\.[0-9]+\.output", name):
@@ -84,7 +83,9 @@ class IterNormRobertaClassifier(ABCRobertaClassifier):
             self._eff_ranks = {}
             self.log_step=0
 
+        factory_kwargs = {"device": input_ids.device, "dtype": torch.float32}
         self.attention_mask = attention_mask
+        self.trace_loss = torch.tensor(0.0, requires_grad=True, **factory_kwargs)
         
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]
@@ -93,6 +94,7 @@ class IterNormRobertaClassifier(ABCRobertaClassifier):
         self.log_step+=1
         if labels is not None:
             loss = self.criterion(logits.squeeze(), labels)
+            loss += self.trace_loss * self.trace_loss_trade_off
             return {"loss": loss, "logits": logits}
         return {"logits": logits}
 

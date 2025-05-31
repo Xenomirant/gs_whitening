@@ -589,6 +589,7 @@ def main():
                 if hasattr(kwargs.get('model', None), '_eff_ranks'):
                     wandb.log({
                     **kwargs['model']._eff_ranks,
+                    "trace_loss": kwargs["model"].trace_loss.item(),
                     'global_step': state.global_step
                     })
         

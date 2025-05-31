@@ -163,6 +163,7 @@ class Whitening2d(nn.Module):
     def calc_eye_sigma(self, xn, w_dim, batch_size, n):
         eye = einops.repeat(torch.eye(w_dim, requires_grad=False).type(xn.type()), 
                 "feats1 feats2 -> batch feats1 feats2", batch=batch_size).to(xn.device)
+        
         if self.use_batch_whitening:
             n = n.sum() if isinstance(n, torch.Tensor) else n * batch_size
             batch_cov = einops.rearrange(xn, "batch sequence feats -> (batch sequence) feats")
@@ -173,6 +174,9 @@ class Whitening2d(nn.Module):
             sigma = einops.einsum(xn, xn, 
                                   "batch seq feats1, batch seq feats2 -> batch feats1 feats2")
             sigma = sigma / (n[:, None, None] - 1) if isinstance(n, torch.Tensor) else sigma / (n - 1)
+        
+        sigma = sigma + eye*1e-5
+
         return eye, sigma
 
     def extra_repr(self):

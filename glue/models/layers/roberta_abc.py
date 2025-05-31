@@ -18,8 +18,8 @@ class ABCRobertaClassifier(nn.Module,):
     
     def _get_trace_loss_hook(self,):
         def forward_trace_hook(module, input, output):
-            if hasattr(module, "trace_loss"):
-                self.trace_loss += trace_loss(output)
+            if hasattr(self, "trace_loss"):
+                self.trace_loss = self.trace_loss + trace_loss(output)
             return None
         return forward_trace_hook
         

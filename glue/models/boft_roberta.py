@@ -19,11 +19,12 @@ class BOFTRobertaClassifier(ABCRobertaClassifier):
     def __init__(self, n_classes, boft_block_size, boft_n_butterfly_factor, 
             cls_dropout=0.1, boft_dropout=0.0, 
             peft_bias='none', use_whitening=False, whitening_params = None,
-            remove_biases=False, use_trace_loss=False,
+            remove_biases=False, use_trace_loss=False, trace_loss_trade_off = 0.01,
             log_steps_eff_rank=10):
         super().__init__()
         self.roberta = RobertaModel.from_pretrained("roberta-base")
-        
+        self.trace_loss_trade_off=trace_loss_trade_off
+
         config = BOFTConfig(
             boft_block_size = boft_block_size,
             boft_n_butterfly_factor=boft_n_butterfly_factor,
@@ -34,7 +35,6 @@ class BOFTRobertaClassifier(ABCRobertaClassifier):
         )
 
         self.roberta = get_peft_model(self.roberta, config)
-        self.trace_loss = torch.tensor([0], requires_grad=True, device=self.roberta.device)
 
         if use_whitening:
             for name, module in self.roberta.named_modules():
@@ -89,7 +89,9 @@ class BOFTRobertaClassifier(ABCRobertaClassifier):
             self._eff_ranks = {}
             self.log_step=0
 
+        factory_kwargs = {"device": input_ids.device, "dtype": torch.float32}
         self.attention_mask = attention_mask
+        self.trace_loss = torch.tensor(0.0, requires_grad=True, **factory_kwargs)
 
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]
@@ -98,7 +100,7 @@ class BOFTRobertaClassifier(ABCRobertaClassifier):
         self.log_step += 1
         if labels is not None:
             loss = self.criterion(logits.squeeze(), labels)
-            loss += self.trace_loss
+            loss += self.trace_loss*self.trace_loss_trade_off
             return {"loss": loss, "logits": logits}
         return {"logits": logits}
 
