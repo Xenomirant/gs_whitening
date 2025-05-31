@@ -12,7 +12,7 @@ class ABCRobertaClassifier(nn.Module,):
     def _get_attention_mask_hook(self,):
         def forward_hook(module, input,):
             if hasattr(self, 'attention_mask'):
-                module.attention_mask = self.attention_mask
+                module.attention_mask = self.attention_mask.clone()
             return None
         return forward_hook
     
