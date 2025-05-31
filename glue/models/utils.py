@@ -19,7 +19,7 @@ def set_layer(model: torch.nn.Module, name: str, layer: torch.nn.Module) -> None
     setattr(model, name, layer)
 
 @torch.no_grad()
-def singular_norm(input_tensor: torch.Tensor, power_iterations: int=20) -> torch.Tensor:
+def singular_norm(input_tensor: torch.Tensor, power_iterations: int=50) -> torch.Tensor:
 
     B, S, F = input_tensor.shape
 
@@ -45,8 +45,9 @@ def singular_norm(input_tensor: torch.Tensor, power_iterations: int=20) -> torch
 
 
 def trace_loss(x: torch.Tensor, ) -> torch.Tensor:
-    B, S, _ = x.size()
+    B, S, D = x.size()
     x = x - x.mean(dim=1, keepdim=True)
-    d = x.pow(2).sum(axis = 1) / (S - 1)
-    tl = d.add_(-1).pow_(2).sum(dim=-1)
-    return tl.mean()
+    frob = x.pow(2).sum(dim=(1,2))
+    tl = (torch.bmm(x.permute(0, 2, 1), x) / frob[:, None, None] * D)\
+        .diagonal(offset=0, dim1=-1, dim2=-2).add(-1).pow(2).sum(dim=-1)
+    return tl.mean(dim=0)
