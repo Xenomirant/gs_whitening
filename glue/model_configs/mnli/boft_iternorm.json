@@ -2,12 +2,12 @@
     "arch": {
         "type": "BOFTRobertaClassifier",
         "args": {
-          "n_classes": 2,
-          "cls_dropout": 0.1,
+          "n_classes": 3,
+          "cls_dropout": 0.15,
           "boft_block_size": 8,
           "boft_n_butterfly_factor": 2,
           "use_whitening": true,
-          "whiten_last_layer": true,
+          "whiten_last_layer": false,
           "whitening_params": {
             "iteration_type": "matrix_root",
             "num_iterations": 8,
@@ -17,7 +17,7 @@
             "affine": false
           },
           "remove_biases": true,
-          "use_trace_loss": true,
+          "use_trace_loss": false,
           "trace_loss_trade_off": 0.01
         }
       }

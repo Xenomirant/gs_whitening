@@ -150,9 +150,9 @@ class Whitening2d(nn.Module):
             x = self.forward_test(x=x, attention_mask=attention_mask, n=n)
 
         # reapply layer norm
-        x = torch.nn.functional.layer_norm(input=x, 
-                                           normalized_shape=(self.num_features,), 
-                                           weight=self.weight, bias=self.bias, eps=1e-6)
+        # x = torch.nn.functional.layer_norm(input=x, 
+        #                                    normalized_shape=(self.num_features,), 
+        #                                    weight=self.weight, bias=self.bias, eps=1e-6)
  
         return x
 

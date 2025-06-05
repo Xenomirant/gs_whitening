@@ -41,8 +41,9 @@ class RobertaClassifier(ABCRobertaClassifier):
             self._eff_ranks = {}
             self.log_step=0
         
-        
+        factory_kwargs = {"device": input_ids.device, "dtype": torch.float32}
         self.attention_mask = attention_mask
+        self.trace_loss = torch.tensor(0.0, requires_grad=True, **factory_kwargs)
 
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
         pooler = roberta_output[0][:, 0]

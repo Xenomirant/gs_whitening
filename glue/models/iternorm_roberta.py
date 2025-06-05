@@ -18,31 +18,34 @@ whitening_layer_type = {
 class IterNormRobertaClassifier(ABCRobertaClassifier):
 
     def __init__(self, n_classes, cls_dropout=0.1, 
-        iteration_type: Literal["matrix_sign", "matrix_root"] = "matrix_sign", 
-        num_iterations=4, use_running_stats_train=True,
-        use_batch_whitening=False, use_only_running_stats_eval=False,
-        whitening_affine=True, remove_biases=False,
+        whitening_params=None,
+        remove_biases=False,
         use_trace_loss=False, trace_loss_trade_off = 0.01,
+        whiten_last_layer=False,
         log_steps_eff_rank=10):
         super().__init__()
         
         self.roberta = RobertaModel.from_pretrained("roberta-base")
         self.trace_loss_trade_off=trace_loss_trade_off
 
+        whitening_re = r"encoder\.layer\.[0-9]+\.output"
+        if whiten_last_layer:
+            whitening_re = r"encoder\.layer\.11\.output"
+
         for name, module in self.roberta.named_modules():
-            if re.search(r"encoder\.layer\.[0-9]+\.output", name):
+            if re.search(whitening_re, name):
                 if isinstance(module, nn.LayerNorm):
                     num_features = self.roberta.config.hidden_size
                     weight, bias = module.weight.data, module.bias.data
 
-                    wh_layer = whitening_layer_type[iteration_type](num_features=num_features, 
-                                iterations=num_iterations, use_batch_whitening=use_batch_whitening,
-                                use_running_stats_train=use_running_stats_train,
-                                use_only_running_stats_eval=use_only_running_stats_eval,
-                                affine=whitening_affine
-                                )
+                    if whitening_params is None:
+                            whitening_params = {}
+                        
+                    iteration_type = whitening_params.get("iteration_type", "matrix_root")
+                    whitening_params["num_features"] = num_features
+                    wh_layer = whitening_layer_type[iteration_type](**whitening_params)
                     
-                    if whitening_affine:
+                    if whitening_params.get("affine", False):
                         wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
                     
                     wh_layer.register_forward_pre_hook(self._get_attention_mask_hook())

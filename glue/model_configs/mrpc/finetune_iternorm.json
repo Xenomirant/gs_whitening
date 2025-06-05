@@ -4,16 +4,18 @@
       "args": {
         "n_classes": 2,
         "cls_dropout": 0.1,
-        "iteration_type": "matrix_sign",
-        "num_iterations": 10,
-        "use_batch_whitening": true,
-        "use_running_stats_train": true,
-        "use_only_running_stats_eval": true,
-        "whitening_affine": false,
+        "whiten_last_layer": true,
+        "whitening_params": {
+            "iteration_type": "matrix_root",
+            "num_iterations": 8,
+            "use_batch_whitening": true,
+            "use_running_stats_train": true,
+            "use_only_running_stats_eval": true,
+            "affine": false
+          },
         "remove_biases": true,
         "use_trace_loss": true,
-        "trace_loss_trade_off": 0.01,
-        "log_steps_eff_rank": 10
+        "trace_loss_trade_off": 0.01
       }
     }
 }

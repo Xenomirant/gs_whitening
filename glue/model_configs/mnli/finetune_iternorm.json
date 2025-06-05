@@ -1,0 +1,21 @@
+{
+  "arch": {
+    "type": "IterNormRobertaClassifier",
+    "args": {
+      "n_classes": 3,
+      "cls_dropout": 0.15,
+      "whiten_last_layer": false,
+      "whitening_params": {
+          "iteration_type": "matrix_root",
+          "num_iterations": 8,
+          "use_batch_whitening": true,
+          "use_running_stats_train": true,
+          "use_only_running_stats_eval": true,
+          "affine": false
+        },
+      "remove_biases": true,
+      "use_trace_loss": false,
+      "trace_loss_trade_off": 0.01
+    }
+  }
+}

@@ -3,7 +3,8 @@
         "type": "RobertaClassifier",
         "args": {
           "n_classes": 3,
-          "cls_dropout": 0.15 
+          "cls_dropout": 0.15,
+          "remove_biases": false
         }
       }
 }
