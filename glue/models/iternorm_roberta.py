@@ -1,7 +1,7 @@
 import regex as re
 import torch
 from torch import nn as nn
-from transformers import RobertaModel
+from transformers import AutoModelForMaskedLM
 
 from models.utils import set_layer, singular_norm, trace_loss
 from models.layers.whitening import WhiteningSing2dIterNorm, WhiteningMatrixSign2dIterNorm, WhiteningTrace2dIterNorm
@@ -25,7 +25,7 @@ class IterNormRobertaClassifier(ABCRobertaClassifier):
         log_steps_eff_rank=10):
         super().__init__()
         
-        self.roberta = RobertaModel.from_pretrained("roberta-base")
+        self.roberta = AutoModelForMaskedLM.from_pretrained("FacebookAI/roberta-base")
         self.trace_loss_trade_off=trace_loss_trade_off
 
         whitening_re = r"encoder\.layer\.[0-9]+\.output"
@@ -33,28 +33,28 @@ class IterNormRobertaClassifier(ABCRobertaClassifier):
             whitening_re = r"encoder\.layer\.11\.output"
 
         for name, module in self.roberta.named_modules():
-            if re.search(whitening_re, name):
-                if isinstance(module, nn.LayerNorm):
-                    num_features = self.roberta.config.hidden_size
-                    weight, bias = module.weight.data, module.bias.data
+            # if re.search(whitening_re, name):
+            if isinstance(module, nn.LayerNorm):
+                num_features = self.roberta.config.hidden_size
+                weight, bias = module.weight.data, module.bias.data
 
-                    if whitening_params is None:
-                            whitening_params = {}
-                        
-                    iteration_type = whitening_params.get("iteration_type", "matrix_root")
-                    whitening_params["num_features"] = num_features
-                    wh_layer = whitening_layer_type[iteration_type](**whitening_params)
+                if whitening_params is None:
+                        whitening_params = {}
                     
-                    if whitening_params.get("affine", False):
-                        wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
-                    
-                    wh_layer.register_forward_pre_hook(self._get_attention_mask_hook())
+                iteration_type = whitening_params.get("iteration_type", "matrix_root")
+                whitening_params["num_features"] = num_features
+                wh_layer = whitening_layer_type[iteration_type](**whitening_params)
+                
+                if whitening_params.get("affine", False):
+                    wh_layer.weight.data, wh_layer.bias.data = weight.clone(), bias.clone()
+                
+                wh_layer.register_forward_pre_hook(self._get_attention_mask_hook())
 
-                    if use_trace_loss:
-                        wh_layer.register_forward_hook(self._get_trace_loss_hook())
-                    
-                    print(f"Changling layer: {name}")
-                    set_layer(self.roberta, name, wh_layer)
+                if use_trace_loss:
+                    wh_layer.register_forward_hook(self._get_trace_loss_hook())
+                
+                print(f"Changling layer: {name}")
+                set_layer(self.roberta, name, wh_layer)
 
         if remove_biases:
             self.remove_biases()
@@ -65,11 +65,11 @@ class IterNormRobertaClassifier(ABCRobertaClassifier):
         self._eff_ranks = {}
         self._register_eff_rank_hooks()
 
-        self.classifier = nn.Sequential(
-            nn.Linear(768, 768, bias=False if remove_biases else True),
-            nn.ReLU(),
-            nn.Dropout(cls_dropout),
-            nn.Linear(768, n_classes, bias=False if remove_biases else True))
+        # self.classifier = nn.Sequential(
+        #     nn.Linear(768, 768, bias=False if remove_biases else True),
+        #     nn.ReLU(),
+        #     nn.Dropout(cls_dropout),
+        #     nn.Linear(768, self.roberta.config.vocab_size, bias=False if remove_biases else True))
         
         if n_classes == 1:
             self.criterion = nn.MSELoss()
@@ -91,12 +91,14 @@ class IterNormRobertaClassifier(ABCRobertaClassifier):
         self.trace_loss = torch.tensor(0.0, requires_grad=True, **factory_kwargs)
         
         roberta_output = self.roberta(input_ids, attention_mask=attention_mask)
-        pooler = roberta_output[0][:, 0]
-        logits = self.classifier(pooler)
+        # pooler = roberta_output[0][:, 0]
+        # logits = self.classifier(pooler)
+        logits = roberta_output.logits
         # self.report_metrics(**self.eff_ranks)
         self.log_step+=1
         if labels is not None:
-            loss = self.criterion(logits.squeeze(), labels)
+            print(logits.shape, labels.shape)
+            loss = self.criterion(logits.view(-1, self.roberta.config.vocab_size), labels.view(-1))
             loss += self.trace_loss * self.trace_loss_trade_off
             return {"loss": loss, "logits": logits}
         return {"logits": logits}

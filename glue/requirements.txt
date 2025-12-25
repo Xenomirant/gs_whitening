@@ -1,7 +1,9 @@
-wandb
+comet-ml
 einops
 transformers
 datasets
 evaluate
 ninja
-git+https://github.com/huggingface/peft
+peft
+numpy
+torch
