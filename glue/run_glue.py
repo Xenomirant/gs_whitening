@@ -24,7 +24,6 @@ import sys
 import warnings
 from dataclasses import dataclass, field
 from typing import Optional
-import comet_ml
 
 import datasets
 import evaluate

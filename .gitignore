@@ -190,3 +190,7 @@ checkpoints/
 # glue/models_test.ipynb
 glue/requirements_bak.txt
 .vscode/
+
+logs/
+c4_roberta_grouped_512
+data/

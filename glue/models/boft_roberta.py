@@ -5,14 +5,21 @@ from transformers import RobertaModel
 from peft import BOFTConfig, get_peft_model
 
 from models.utils import set_layer, singular_norm
-from models.layers.whitening import WhiteningSing2dIterNorm, WhiteningMatrixSign2dIterNorm, WhiteningTrace2dIterNorm
+from models.layers.whitening import (
+    WhiteningSing2dIterNorm,
+    WhiteningMatrixSign2dIterNorm,
+    WhiteningTrace2dIterNorm,
+)
+from models.layers.cans_whitening import WhiteningCANS2d
 from models.layers.roberta_abc import ABCRobertaClassifier
 
 whitening_layer_type = {
-        "matrix_sign": WhiteningMatrixSign2dIterNorm, 
+        "matrix_sign": WhiteningMatrixSign2dIterNorm,
         "matrix_root": WhiteningSing2dIterNorm,
-        "matrix_trace": WhiteningTrace2dIterNorm
-                            }
+        "matrix_trace": WhiteningTrace2dIterNorm,
+        # Use CANS iteration for polar decomposition based whitening.
+        "cans": WhiteningCANS2d,
+}
 
 class BOFTRobertaClassifier(ABCRobertaClassifier):
 
