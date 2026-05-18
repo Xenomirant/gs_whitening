@@ -44,161 +44,51 @@ matrix.  The square root itself is returned as a side effect to update
 
 Note
 ----
-This implementation operates per sample in a mini‑batch.  For each sample
-we build a block matrix and apply the CANS iteration independently.
-Although looped Python code may seem inefficient, the embedding dimension
-in typical transformer models is at most a thousand, so the overhead is
-acceptable during training.  Future work could batch the CANS iteration
-using vectorized operations.
+This implementation builds the CANS block matrices for the whole mini-batch
+and applies the cubic iteration with batched matrix multiplications on the
+same device as the input tensors.
 """
 
-import math
 import torch
-import torch.nn as nn
 from torch import Tensor
 
 from models.layers.whitening import Whitening2d
-from models.utils import singular_norm
-
-import numpy as np
 
 # einops is used in forward_test.  Importing it lazily here avoids a hard
 # dependency when the layer is instantiated but never used for evaluation.
 import einops
 
 
-def get_polynomial(Ext: np.ndarray) -> np.ndarray:
-    """Compute polynomial coefficients used by the Remez algorithm.
-
-    This helper is a thin wrapper around the original implementation in the
-    provided reference.  It solves a linear system to find coefficients of
-    a polynomial that oscillates optimally on the interval defined by
-    ``Ext``.  The resulting coefficients are returned as a NumPy array.
-    """
-    n = len(Ext) - 1
-    M = np.zeros((n + 1, n + 1), dtype=np.float64)
-    for i in range(n + 1):
-        for j in range(n):
-            M[i, j] = Ext[i] ** (2 * j + 1)
-        M[i, n] = (-1) ** (i + 1)
-    c = np.linalg.solve(M, np.ones(n + 1, dtype=np.float64))
-    return c
+def explicit3_coefficients(A: Tensor, B: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    """Return x and x^3 coefficients for the optimal cubic CANS polynomial."""
+    e = torch.sqrt((A.square() + A * B + B.square()) / 3)
+    denom = 2 * e.pow(3) + A.square() * B + B.square() * A
+    scale = 2 / denom
+    coeff_x = scale * (A.square() + A * B + B.square())
+    coeff_x3 = -scale
+    err = (2 * e.pow(3) - A.square() * B - B.square() * A) / denom
+    return coeff_x, coeff_x3, err
 
 
-def get_ext(c: np.ndarray) -> np.ndarray:
-    n = len(c)
-    coeffs = [(2 * j + 1) * c[j] for j in range(n)]
-    rts = np.roots(coeffs[::-1])
-    return np.sqrt(rts)
+@torch.no_grad()
+def spectral_norm_estimate(input_tensor: Tensor, power_iterations: int = 20) -> Tensor:
+    """Estimate batched spectral norms without leaving the current device."""
+    batch, _, cols = input_tensor.shape
+    eps = torch.finfo(input_tensor.dtype).eps
+    v = torch.randn(batch, cols, 1, dtype=input_tensor.dtype, device=input_tensor.device)
+    v = v / v.norm(dim=1, keepdim=True).clamp_min(eps)
+
+    for _ in range(power_iterations):
+        u = input_tensor @ v
+        u = u / u.norm(dim=1, keepdim=True).clamp_min(eps)
+        v = input_tensor.transpose(-2, -1) @ u
+        v = v / v.norm(dim=1, keepdim=True).clamp_min(eps)
+
+    sigma = u.transpose(-2, -1) @ input_tensor @ v
+    return sigma.abs().view(batch, 1, 1)
 
 
-def remez_step(Ext: np.ndarray):
-    n = len(Ext) - 1
-    c = get_polynomial(Ext)
-    coeffs = [c[j // 2 - 1] if j % 2 == 0 else 0 for j in range(1, 2 * n + 1)]
-    p = np.poly1d(coeffs[::-1])
-    e = c[n].item()
-    NewExt = np.concatenate(([Ext[0]], get_ext(c[:n]), [Ext[-1]]))
-    f = lambda x: np.abs(p(x) - 1)
-    newe = np.max(f(NewExt))
-    return p, NewExt, e, newe
-
-
-def remez(A: float, B: float, degree: int):
-    """Compute an optimal polynomial approximation of the unity function.
-
-    This function returns a polynomial ``p`` and an error bound ``newe``
-    defined on the interval ``[A, B]``.  When the interval collapses,
-    a fallback polynomial from Kovarik's formula is returned.
-    """
-    n = (degree + 1) // 2
-    Ext = np.linspace(B, A, n + 1, dtype=np.float64)
-    p = np.poly1d([0])
-    newe = 0
-    for _ in range(100):
-        try:
-            p, NewExt, e, newe = remez_step(Ext)
-        except np.linalg.LinAlgError:
-            # if the segment converged to [A, B] = [1, 1]
-            return kovarik_formula(degree), 0
-        if newe < abs(e) + 1e-20:
-            return p, newe
-        Ext = np.array(NewExt, dtype=np.float64)
-    return p, newe
-
-
-def c_n_k(n: int, k: int) -> float:
-    s = 1
-    for i in range(n - k + 1, n + 1):
-        s *= i
-    for i in range(1, k + 1):
-        s /= i
-    return s
-
-
-def kovarik_formula(degree: int) -> np.poly1d:
-    """Generate an explicit polynomial used as a fallback.
-
-    The formula is taken from Zdislav Kovarik (1970).  It yields a polynomial
-    that improves orthonality when the Remez algorithm fails to converge.
-    """
-    p = np.zeros(degree + 1)
-    p[1] += 1
-    a = 1
-    for i in range(1, (degree + 1) // 2):
-        for j in range(2 * (i - 1) + 1, 2 * i + 1):
-            a *= j / 2
-        a /= i ** 2
-        sign = 1
-        for k in range(0, i + 1):
-            p[2 * k + 1] += a * sign * c_n_k(i, k)
-            sign *= -1
-    return np.poly1d(p[::-1])
-
-
-def explicit3(A: float, B: float):
-    """Explicit formula for the optimal cubic polynomial.
-
-    This closed‑form expression accelerates the orthogonalization step for
-    degree ``3`` polynomials.  It returns both the polynomial ``p`` and the
-    associated approximation error ``err`` on the interval ``[A, B]``.
-    """
-    e = np.sqrt((A ** 2 + A * B + B ** 2) / 3)
-    a = 2 / (2 * e ** 3 + A ** 2 * B + B ** 2 * A)
-    p = np.poly1d([-a, 0, a * (A ** 2 + A * B + B ** 2), 0])
-    err = (2 * e ** 3 - A ** 2 * B - B ** 2 * A) / (2 * e ** 3 + A ** 2 * B + B ** 2 * A)
-    return p, err
-
-
-def delta_orthogonalization(n: int = 1, degree: int = 3, delta: float = 0.3, B: float = 1):
-    """Find a composition of polynomials that improves orthogonality.
-
-    This helper function searches for a left boundary ``A`` such that the
-    composition of ``n`` degree‑``degree`` polynomials approximates the unity
-    function on ``[A, B]`` with accuracy ``delta``.  It returns the list of
-    polynomials and the final left boundary value.  The function is
-    unchanged from the original implementation.
-    """
-    Al = 0.0
-    Ar = B
-    e = 100
-    while abs(e - delta) > 1e-7:
-        a, b = (Al + Ar) / 2, B
-        lst = []
-        for i in range(n):
-            if degree == 3:
-                Q, e = explicit3(a, b)
-            else:
-                Q, e = remez(a, b, degree)
-            lst.append(Q)
-            a, b = 1 - e, 1 + e
-        if e < delta:
-            Ar = (Ar + Al) / 2
-        else:
-            Al = (Al + Ar) / 2
-    return lst, (Al + Ar) / 2
-
-
+@torch.no_grad()
 def cans_iteration(A: torch.Tensor, n: int, a: float, degree: int = 3, preprocess: bool = False,
                    preprocess_iters: int = 4, delta: float = 0.99) -> torch.Tensor:
     """Perform a CANS iteration to orthogonalize a matrix.
@@ -214,8 +104,8 @@ def cans_iteration(A: torch.Tensor, n: int, a: float, degree: int = 3, preproces
         Left boundary of the approximation interval.  A sensible default is
         ``0.0``.  See the reference for details.
     degree : int, optional
-        Degree of the polynomial approximation.  Currently only ``3`` and
-        ``5`` are implemented.  Default is ``3``.
+        Degree of the polynomial approximation.  The GPU-native implementation
+        currently supports only ``3``.  Default is ``3``.
     preprocess : bool, optional
         Whether to perform a few warm‑up iterations using delta‑orthogonal
         polynomials before the main iteration.  Default is ``False``.
@@ -233,72 +123,45 @@ def cans_iteration(A: torch.Tensor, n: int, a: float, degree: int = 3, preproces
 
     Notes
     -----
-    This function is a direct translation of the reference implementation
-    provided by the user.  Most operations are performed in double
-    precision on the CPU to improve numerical stability.  The result is
-    moved back to the device and dtype of the input ``A`` before being
-    returned.
+    The solver is intentionally run under ``torch.no_grad``.  The whitening
+    matrix is treated as a per-step normalization statistic, so gradients flow
+    through the normalized activations but not through every CANS iterate.
     """
-    # Move computation to CPU and double precision for stability
-    dtype = A.dtype
-    device = A.device
-    A = A.to(torch.float64).cpu().clone()
-    if A.shape[0] < A.shape[1]:
-        A = A.T
+    if degree != 3:
+        raise NotImplementedError("The GPU-native CANS implementation currently supports degree=3 only")
+    if preprocess:
+        raise NotImplementedError("GPU-native CANS preprocessing is not implemented")
 
-    if degree == 3:
-        A2 = A.T @ A
-        A3 = A @ A2
-        denom = torch.norm(A3, p='fro') ** (1.0 / 3.0) + 1e-7
-        A2 /= denom ** 2
-        A3 /= denom ** 3
-    elif degree == 5:
-        A2 = A.T @ A
-        A3 = A @ A2
-        A5 = A3 @ A2
-        denom = torch.norm(A5, p='fro') ** (1.0 / 5.0) + 1e-7
-        A2 /= denom ** 2
-        A3 /= denom ** 3
-        A5 /= denom ** 5
+    original_dtype = A.dtype
+    compute_dtype = torch.float32 if A.dtype in (torch.float16, torch.bfloat16) else A.dtype
+    A = A.to(dtype=compute_dtype).clone()
+    if A.dim() == 2:
+        A = A.unsqueeze(0)
+        squeeze_output = True
     else:
-        raise NotImplementedError("Only degrees 3 and 5 are implemented")
+        squeeze_output = False
+    if A.shape[-2] < A.shape[-1]:
+        A = A.transpose(-2, -1)
+
+    A2 = A.transpose(-2, -1) @ A
+    A3 = A @ A2
+    denom = torch.linalg.matrix_norm(A3, ord="fro", dim=(-2, -1), keepdim=True).pow(1.0 / 3.0)
+    denom = denom.clamp_min(torch.finfo(A.dtype).eps)
     A = A / denom
 
     b = 1.0  # right boundary is fixed to 1.0 for the normalization
-    I = torch.eye(A.shape[1], dtype=A.dtype, device=A.device)
-    if preprocess:
-        lst, _ = delta_orthogonalization(preprocess_iters, degree, delta)
-        for i in range(preprocess_iters):
-            if degree == 3:
-                A = lst[i][1] * A + lst[i][3] * A3
-            elif degree == 5:
-                A = lst[i][1] * A + lst[i][3] * A3 + lst[i][5] * A5
-            A2 = A.T @ A
-            A3 = A @ A2
-            if degree == 5:
-                A5 = A3 @ A2
-        a, b = 1 - delta, 1 + delta
-    cnt = 0
-    err = torch.norm(A2 - I) / torch.norm(I, p='fro')
-    while cnt < n and (err > 1e-6):
-        if cnt > 0:
-            A3 = A @ A2
-            if degree == 5:
-                A5 = A3 @ A2
-        if degree == 3:
-            p, e = explicit3(a, b)
-            a, b = 1 - e, 1 + e
-            A = p[1] * A + p[3] * A3
-        elif degree == 5:
-            p, e = remez(a, b, degree)
-            a, b = 1 - e, 1 + e
-            A = p[1] * A + p[3] * A3 + p[5] * A5
-            b *= 1.01  # for numerical stability
-        A2 = A.T @ A
-        err = torch.norm(A2 - I) / torch.norm(I, p='fro')
-        cnt += 1
-    # Cast back to original dtype/device
-    return A.to(dtype).to(device)
+    a_t = torch.as_tensor(a, dtype=A.dtype, device=A.device)
+    b_t = torch.as_tensor(b, dtype=A.dtype, device=A.device)
+    for _ in range(n):
+        A2 = A.transpose(-2, -1) @ A
+        A3 = A @ A2
+        coeff_x, coeff_x3, err = explicit3_coefficients(a_t, b_t)
+        A = (coeff_x * A + coeff_x3 * A3).detach()
+        a_t = (1 - err).detach()
+        b_t = (1 + err).detach()
+
+    A = A.to(dtype=original_dtype)
+    return A.squeeze(0) if squeeze_output else A
 
 
 class WhiteningCANS2d(Whitening2d):
@@ -323,6 +186,15 @@ class WhiteningCANS2d(Whitening2d):
         )
         self.running_H: Tensor
 
+    def reset_running_stats(self) -> None:
+        super().reset_running_stats()
+        if hasattr(self, "running_H") and self.running_H is not None:
+            self.running_H.copy_(torch.eye(
+                self.num_features,
+                dtype=self.running_H.dtype,
+                device=self.running_H.device,
+            ))
+
     def update_running_statistic(self, running_statistic: str, value: Tensor) -> None:
         """Override to support updating the running square‑root factor.
 
@@ -333,7 +205,8 @@ class WhiteningCANS2d(Whitening2d):
         """
         if running_statistic == "running_H":
             cur = getattr(self, running_statistic)
-            setattr(self, running_statistic, (1 - self.momentum) * cur + self.momentum * value.clone().detach())
+            with torch.no_grad():
+                cur.copy_((1 - self.momentum) * cur + self.momentum * value.detach())
         else:
             super().update_running_statistic(running_statistic, value)
 
@@ -361,35 +234,23 @@ class WhiteningCANS2d(Whitening2d):
         accumulated square‑root during evaluation.
         """
         B, d, _ = sigma.shape
-        # Prepare output tensors
-        wm = sigma.new_empty((B, d, d))
-        H_batch = sigma.new_empty((B, d, d))
-        # Iterate over each sample because CANS operates on a single matrix
-        for i in range(B):
-            # Construct block matrix [[0, sigma], [I, 0]]
-            upper = torch.cat([torch.zeros_like(sigma[i]), sigma[i]], dim=1)
-            lower = torch.cat([torch.eye(d, dtype=sigma.dtype, device=sigma.device), torch.zeros_like(sigma[i])], dim=1)
-            block = torch.cat([upper, lower], dim=0)
-            # Compute singular norm for scaling
-            # singular_norm expects shape (batch, S, F), so we unsqueeze
-            block_unsqueezed = block.unsqueeze(0)
-            s = singular_norm(block_unsqueezed)  # shape (1,)
-            s_val = s.item() + 1e-12
-            block_scaled = block / s_val
-            # Apply CANS iteration to approximate the polar factor (matrix sign)
-            # The number of iterations and left boundary a are taken from the
-            # layer's configuration.  We use degree=3 and do not preprocess.
-            U = cans_iteration(block_scaled, n=self.iterations, a=0.0, degree=3, preprocess=False)
-            # Extract blocks: U = [[U00, U01], [U10, U11]]
-            U00 = U[0:d, 0:d]
-            U01 = U[0:d, d:]
-            U10 = U[d:, 0:d]
-            # According to sign([[0,A],[I,0]]) = [[0,A^{1/2}], [A^{-1/2},0]],
-            # we recover sigma^{1/2} and sigma^{-1/2} up to the scaling factor.
-            sigma_sqrt = U01 * math.sqrt(s_val)
-            sigma_inv_sqrt = U10 / math.sqrt(s_val)
-            H_batch[i] = sigma_sqrt
-            wm[i] = sigma_inv_sqrt
+        output_dtype = sigma.dtype
+        compute_dtype = torch.float32 if sigma.dtype in (torch.float16, torch.bfloat16) else sigma.dtype
+        sigma_stat = sigma.detach().to(dtype=compute_dtype)
+        zeros = torch.zeros_like(sigma_stat)
+        eye_d = torch.eye(d, dtype=sigma_stat.dtype, device=sigma_stat.device).expand(B, d, d)
+
+        upper = torch.cat([zeros, sigma_stat], dim=-1)
+        lower = torch.cat([eye_d, zeros], dim=-1)
+        block = torch.cat([upper, lower], dim=-2)
+
+        scale = spectral_norm_estimate(block)
+        scale = scale.clamp_min(torch.finfo(block.dtype).eps)
+        U = cans_iteration(block / scale, n=self.iterations, a=0.0, degree=3, preprocess=False)
+
+        scale_sqrt = scale.sqrt()
+        H_batch = U[:, :d, d:] * scale_sqrt
+        wm = (U[:, d:, :d] / scale_sqrt).to(dtype=output_dtype)
         # Update running H with the batch mean
         if self.training and self.track_running_stats:
             self.update_running_statistic("running_H", H_batch.mean(dim=0))
@@ -423,4 +284,3 @@ class WhiteningCANS2d(Whitening2d):
         self.update_running_statistic("running_whitening", wh_matrix.mean(dim=0))
         decorrelated = torch.bmm(xn, wh_matrix)
         return decorrelated
-

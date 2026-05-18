@@ -65,9 +65,17 @@ class Whitening2d(nn.Module):
         
     def reset_running_stats(self) -> None:
         if self.track_running_stats:
-            self.running_mean.zero_()  
-            self.running_covariance.fill_(1)
-            self.running_whitening.fill_(1)
+            self.running_mean.zero_()
+            self.running_covariance.copy_(torch.eye(
+                self.num_features,
+                dtype=self.running_covariance.dtype,
+                device=self.running_covariance.device,
+            ))
+            self.running_whitening.copy_(torch.eye(
+                self.num_features,
+                dtype=self.running_whitening.dtype,
+                device=self.running_whitening.device,
+            ))
 
     def reset_parameters(self) -> None:
         self.reset_running_stats()
@@ -77,9 +85,8 @@ class Whitening2d(nn.Module):
 
     def update_running_statistic(self, running_statistic, value):
         cur = getattr(self, running_statistic,)
-        setattr(self, running_statistic, 
-                (1-self.momentum)*cur + self.momentum*value.clone().detach()
-                )
+        with torch.no_grad():
+            cur.copy_((1-self.momentum)*cur + self.momentum*value.detach())
 
     def forward_train(self, x, attention_mask, n):
         
