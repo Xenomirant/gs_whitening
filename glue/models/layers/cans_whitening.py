@@ -205,8 +205,16 @@ class WhiteningCANS2d(Whitening2d):
         """
         if running_statistic == "running_H":
             cur = getattr(self, running_statistic)
+            value = value.detach()
+            if value.shape != cur.shape:
+                if value.numel() != cur.numel():
+                    raise RuntimeError(
+                        f"Cannot update {running_statistic}: value shape {tuple(value.shape)} "
+                        f"does not match buffer shape {tuple(cur.shape)}"
+                    )
+                value = value.reshape_as(cur)
             with torch.no_grad():
-                cur.copy_((1 - self.momentum) * cur + self.momentum * value.detach())
+                cur.copy_((1 - self.momentum) * cur + self.momentum * value)
         else:
             super().update_running_statistic(running_statistic, value)
 

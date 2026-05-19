@@ -38,6 +38,7 @@ import torch
 try:
     from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
     from transformers import (
+        AutoConfig,
         AutoModelForMaskedLM,
         AutoTokenizer,
         DataCollatorForLanguageModeling,
@@ -80,11 +81,6 @@ def replace_layer_norm_with_cans(
                 use_running_stats_train=True,
                 use_only_running_stats_eval=True,
             )
-
-            if affine:
-                with torch.no_grad():
-                    cans_layer.weight.data.copy_(module.weight.data)
-                    cans_layer.bias.data.copy_(module.bias.data)
 
             setattr(model, name, cans_layer)
 
@@ -381,7 +377,9 @@ def main():
 
     train_dataset, eval_dataset = split_train_eval_dataset(args, lm_dataset)
 
-    model = AutoModelForMaskedLM.from_pretrained(args.model_name_or_path)
+    config = AutoConfig.from_pretrained(args.model_name_or_path)
+    model = AutoModelForMaskedLM.from_config(config)
+    LOGGER.info("Initialized %s from config for pretraining from scratch", args.model_name_or_path)
     replace_layer_norm_with_cans(
         model,
         iterations=args.iterations,
