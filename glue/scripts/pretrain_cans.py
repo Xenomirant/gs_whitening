@@ -348,6 +348,11 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--iterations", type=int, default=2, help="Number of CANS iterations for whitening.")
     parser.add_argument("--momentum", type=float, default=0.1, help="EMA momentum for whitening statistics.")
+    parser.add_argument(
+        "--baseline",
+        action="store_true",
+        help="Keep the original model architecture and skip replacing LayerNorm with CANS whitening.",
+    )
 
     parser.add_argument("--validation-fraction", type=float, default=0.01, help="Fraction of processed dataset used for eval.")
     parser.add_argument("--max-validation-samples", type=int, default=10000, help="Cap on eval examples.")
@@ -380,11 +385,14 @@ def main():
     config = AutoConfig.from_pretrained(args.model_name_or_path)
     model = AutoModelForMaskedLM.from_config(config)
     LOGGER.info("Initialized %s from config for pretraining from scratch", args.model_name_or_path)
-    replace_layer_norm_with_cans(
-        model,
-        iterations=args.iterations,
-        momentum=args.momentum,
-    )
+    if args.baseline:
+        LOGGER.info("Running baseline: preserving the original model architecture")
+    else:
+        replace_layer_norm_with_cans(
+            model,
+            iterations=args.iterations,
+            momentum=args.momentum,
+        )
 
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
